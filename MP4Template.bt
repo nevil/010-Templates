@@ -7,6 +7,7 @@
 // Purpose: Parse MP4 and PIFF files (fragmented MP4)
 //--------------------------------------
 
+//#define VERBOSE
 /*  TODOs collection
     BoxType - Change to uint32 and create type constants
     SampleDependencyTypeBox - The size of the table, sample_count, is taken from the sample_count in the Sample Size Box ('stsz') or Compact Sample Size Box (‘stz2’).
@@ -126,7 +127,7 @@ UUID UUIDConst(string s)
 */
 /******************** typedef UUID ********************/
 
-typedef uchar BoxType[4] <read=BoxTypeRead>;
+typedef uchar BoxType[4] <read=BoxTypeRead, write=BoxTypeWrite>;
 string BoxTypeRead(BoxType type)
 {
     local string s;
@@ -138,6 +139,15 @@ string BoxTypeRead(BoxType type)
     return s;
 }
 
+void BoxTypeWrite(BoxType &type, string s)
+{
+    type[0] = s[0];
+    type[1] = s[1];
+    type[2] = s[2];
+    type[3] = s[3];
+}
+
+
 void ReadBoxType(BoxType &type, int64 pos)
 {
     ReadBytes(type, pos, 4);
@@ -147,7 +157,7 @@ void ReadBoxType(BoxType &type, int64 pos)
 /********************* Base Boxes *********************/
 void Box()
 {
-    SetBackColor(cLtGreen);
+//    SetBackColor(cLtGreen);
     uint32 size;
     BoxType type;
     if (size == 1)
@@ -163,16 +173,16 @@ void Box()
     {
         UUID usertype;
     }
-    SetBackColor(cNone);
+//    SetBackColor(cNone);
 }
 
 void FullBox()
 {
     Box();
-    SetBackColor(cDkGreen);
+//    SetBackColor(cDkGreen);
     uint32 version : 8;
     uint32 flags :24;
-    SetBackColor(cNone);
+//    SetBackColor(cNone);
 }
 /********************* Base Boxes *********************/
 
@@ -333,57 +343,7 @@ typedef struct
 typedef struct
 {
     Box();
-    local uint32 boxLength;
-    local BoxType boxType;
-    local UUID boxId;
-
-    while ( ((size - FTell() + startof(size)) != 0) && !FEof() )
-    {
-        // Read box header
-        boxLength = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-
-        if (boxType == "uuid")
-        {
-            if (boxLength == 1)
-                ReadUuid(boxId, FTell() + 16);
-            else
-                ReadUuid(boxId, FTell() + 8);
-
-            Printf("%s\n", UUIDRead(boxId));
-        }
-
-        Printf("boxType in traf %s\n", BoxTypeRead(boxType));
-        if (boxType == "tfhd")
-        {
-            TrackFragmentHeaderBox tfhd;
-        }
-        else if (boxType == "trun")
-        {
-            TrackRunBox trun;
-        }
-        else if (boxType == "sdtp")
-        {
-            SampleDependencyTypeBox sdtp;
-        }
-        else if (boxType == "sbgp")
-        {
-            SampleToGroupBox sbgp;
-        }
-        else if (boxType == "subs")
-        {
-            SubSampleInformationBox subs;
-        }
-        else if ((boxType == "uuid" && boxId == kSampleEncryptionBoxUUID) || boxType == "senc")
-        {
-            SampleEncryptionBox senc;
-        }
-        else
-        {
-            Printf( "Skipping box in traf: '%s'\n", BoxTypeRead(boxType));
-            FSkip(boxLength);
-        }
-    }
+    parse();
 } TrackFragmentBox;
 
 typedef struct
@@ -395,28 +355,7 @@ typedef struct
 typedef struct
 {
     Box();
-    local uint32 boxLength;
-    local BoxType boxType;
-    while ( ((size - FTell() + startof(size)) != 0) && !FEof() )
-    {
-        // Read box header
-        boxLength = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-        Printf("boxType in moof %s\n", BoxTypeRead(boxType));
-        if (boxType == "mfhd")
-        {
-            MovieFragmentHeaderBox mfhd;
-        }
-        else if (boxType == "traf")
-        {
-            TrackFragmentBox traf;
-        }
-        else
-        {
-            Printf( "Skipping box in moof: '%s'\n", BoxTypeRead(boxType) );
-            FSkip(boxLength);
-        }
-    }
+    parse();
 } MovieFragmentBox;
 
 typedef struct
@@ -455,28 +394,7 @@ typedef struct
 
 typedef struct {
     Box();
-    local uint32 boxLength;
-    local BoxType boxType;
-    while ( ((size - FTell() + startof(size)) != 0) && !FEof() )
-    {
-        // Read box header
-        boxLength = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-        Printf("boxType in mfra %s\n", BoxTypeRead(boxType));
-        if (boxType == "tfra")
-        {
-            TrackFragmentRandomAccessBox tfra;
-        }
-        else if (boxType == "mfro")
-        {
-            MovieFragmentRandomAccessOffsetBox mfro;
-        }
-        else
-        {
-            Printf( "Skipping box in mfra: '%s'\n", BoxTypeRead(boxType));
-            FSkip(boxLength);
-        }
-    }
+    parse();
 } MovieFragmentRandomAccessBox;
 
 typedef struct
@@ -522,38 +440,7 @@ typedef struct
 typedef struct
 {
     Box();
-
-    local uint32 boxLength;
-    local BoxType boxType;
-    while ( ((size - FTell() + startof(size)) != 0) && !FEof() )
-    {
-        // Read box header
-        boxLength = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-
-        Printf("boxType in minf %s\n", BoxTypeRead(boxType));
-        if (boxType == "vmhd")
-        {
-            VideoMediaHeaderBox vmhd;
-        }
-        else if (boxType == "smhd")
-        {
-            SoundMediaHeaderBox smhd;
-        }
-        else if (boxType == "hmhd")
-        {
-            HintMediaHeaderBox hmhd;
-        }
-        else if (boxType == "nmhd")
-        {
-            NullMediaHeaderBox nmhd;
-        }
-        else
-        {
-            Printf( "Skipping box in minf: '%s'\n", BoxTypeRead(boxType));
-            FSkip(boxLength);
-        }
-    }
+    parse();
 } MediaInformationBox;
 
 typedef struct
@@ -592,34 +479,7 @@ typedef struct
 typedef struct
 {
     Box();
-
-    local uint32 boxLength;
-    local BoxType boxType;
-    while ( ((size - FTell() + startof(size)) != 0) && !FEof() )
-    {
-        // Read box header
-        boxLength = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-
-        Printf("boxType in mdia %s\n", BoxTypeRead(boxType));
-        if (boxType == "mdhd")
-        {
-            MediaHeaderBox mdhd;
-        }
-        else if (boxType == "hdlr")
-        {
-            HandlerBox hdlr;
-        }
-        else if (boxType == "minf")
-        {
-            MediaInformationBox minf;
-        }
-        else
-        {
-            Printf( "Skipping box in mdia: '%s'\n", BoxTypeRead(boxType));
-            FSkip(boxLength);
-        }
-    }
+    parse();
 } MediaBox;
 
 typedef struct
@@ -655,31 +515,7 @@ typedef struct
 typedef struct
 {
     Box();
-
-    local uint32 boxLength;
-    local BoxType boxType;
-    while ( ((size - FTell() + startof(size)) != 0) && !FEof() )
-    {
-        // Read box header
-        boxLength = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-
-        Printf("boxType in trak %s\n", BoxTypeRead(boxType));
-        if (boxType == "tkhd")
-        {
-            TrackHeaderBox tkhd;
-        }
-        else if (boxType == "mdia")
-        {
-            MediaBox mdia;
-        }
-        else
-        {
-            Printf( "Skipping box in trak: '%s'\n", BoxTypeRead(boxType));
-            FSkip(boxLength);
-        }
-    }
-
+    parse();
 } TrackBox;
 
 typedef struct
@@ -712,89 +548,7 @@ typedef struct
 {
     Box();
     parse();
-/*
-    local uint32 boxLength;
-    local BoxType boxType;
-    local UUID boxId;
-    while ( ((size - FTell() + startof(size)) != 0) && !FEof() )
-    {
-        // Read box header
-        boxLength = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-
-        if (boxType == "uuid")
-        {
-            if (boxLength == 1)
-                ReadUuid(boxId, FTell() + 16);
-            else
-                ReadUuid(boxId, FTell() + 8);
-
-            Printf("%s\n", UUIDRead(boxId));
-        }
-
-        Printf("boxType in moov %s\n", BoxTypeRead(boxType));
-        if (boxType == "mvhd")
-        {
-            MovieHeaderBox mvhd;
-        }
-        else if (boxType == "trak")
-        {
-            TrackBox trak;
-        }
-        else if ((boxType == "uuid" && boxId == kProtectionSystemSpecificHeaderBoxUUID) || boxType == "pssh")
-        {
-            ProtectionSystemSpecificHeaderBox pssh;
-        }
-        else
-        {
-            Printf( "Skipping box in moov: '%s'\n", BoxTypeRead(boxType));
-            FSkip(boxLength);
-        }
-    }
-*/
 } MovieBox;
-
-int parseFile()
-{
-    local uint32 boxLength;
-    local BoxType boxType;
-    while( !FEof() )
-    {
-        // Read box header
-        boxLength = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-
-        Printf("boxType %s\n", BoxTypeRead(boxType));
-
-        if( boxType == "ftyp" )
-        {
-            FileTypeBox ftyp;
-        }
-        else if ( boxType == "moof" )
-        {
-            MovieFragmentBox moof;
-        }
-        else if ( boxType == "mfra" )
-        {
-            MovieFragmentRandomAccessBox mfra;
-        }
-        else if ( boxType == "mdat" )
-        {
-            MediaDataBox mdat;
-        }
-        else if ( boxType == "moov" )
-        {
-            MovieBox moov;
-        }
-        else
-        {
-            Printf( "Skipping top level box: '%s'\n", BoxTypeRead(boxType) );
-            FSkip(boxLength);
-        }
-    }
-
-    return 0;
-}
 
 int EndOfObject()
 {
@@ -809,10 +563,11 @@ void parse()
     local uint32 boxLength;
     local BoxType boxType;
     local UUID boxId;
+    local uint64 pos;
 
-//    while( (this.size - (FTell() - startof(this.size)) != 0) && !FEof() )
     while( !EndOfObject() )
     {
+        pos = FTell();
         // Read box header
         boxLength = ReadUInt( FTell() );
         ReadBoxType(boxType, FTell() + 4);
@@ -824,11 +579,15 @@ void parse()
             else
                 ReadUuid(boxId, FTell() + 8);
 
+#ifdef VERBOSE
             Printf("%s\n", UUIDRead(boxId));
+#endif
         }
 
-        Printf("boxType %s\n", BoxTypeRead(boxType));
-        Printf("this.type %s", this.type);
+#ifdef VERBOSE
+        Printf("In '%s', found boxType '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType));
+#endif
+
         if ( this.type == "file" )
         {
             if( boxType == "ftyp" )
@@ -851,11 +610,6 @@ void parse()
             {
                 MovieBox moov;
             }
-            else
-            {
-                Printf( "Skipping top level box: '%s'\n", BoxTypeRead(boxType) );
-                FSkip(boxLength);
-            }
         }
         else if (this.type == "moov")
         {
@@ -871,11 +625,107 @@ void parse()
             {
                 ProtectionSystemSpecificHeaderBox pssh;
             }
-            else
+        }
+        else if (this.type == "moof")
+        {
+            if (boxType == "mfhd")
             {
-                Printf( "Skipping box in moov: '%s'\n", BoxTypeRead(boxType));
-                FSkip(boxLength);
+                MovieFragmentHeaderBox mfhd;
             }
+            else if (boxType == "traf")
+            {
+                TrackFragmentBox traf;
+            }
+        }
+        else if (this.type == "mfra")
+        {
+            if (boxType == "tfra")
+            {
+                TrackFragmentRandomAccessBox tfra;
+            }
+            else if (boxType == "mfro")
+            {
+                MovieFragmentRandomAccessOffsetBox mfro;
+            }
+        }
+        else if (this.type == "traf")
+        {
+            if (boxType == "tfhd")
+            {
+                TrackFragmentHeaderBox tfhd;
+            }
+            else if (boxType == "trun")
+            {
+                TrackRunBox trun;
+            }
+            else if (boxType == "sdtp")
+            {
+                SampleDependencyTypeBox sdtp;
+            }
+            else if (boxType == "sbgp")
+            {
+                SampleToGroupBox sbgp;
+            }
+            else if (boxType == "subs")
+            {
+                SubSampleInformationBox subs;
+            }
+            else if ((boxType == "uuid" && boxId == kSampleEncryptionBoxUUID) || boxType == "senc")
+            {
+                SampleEncryptionBox senc;
+            }
+        }
+        else if (this.type == "trak")
+        {
+           if (boxType == "tkhd")
+            {
+                TrackHeaderBox tkhd;
+            }
+            else if (boxType == "mdia")
+            {
+                MediaBox mdia;
+            }
+        }
+        else if (this.type == "mdia")
+        {
+            if (boxType == "mdhd")
+            {
+                MediaHeaderBox mdhd;
+            }
+            else if (boxType == "hdlr")
+            {
+                HandlerBox hdlr;
+            }
+            else if (boxType == "minf")
+            {
+                MediaInformationBox minf;
+            }
+        }
+        else if (this.type == "minf")
+        {
+            if (boxType == "vmhd")
+            {
+                VideoMediaHeaderBox vmhd;
+            }
+            else if (boxType == "smhd")
+            {
+                SoundMediaHeaderBox smhd;
+            }
+            else if (boxType == "hmhd")
+            {
+                HintMediaHeaderBox hmhd;
+            }
+            else if (boxType == "nmhd")
+            {
+                NullMediaHeaderBox nmhd;
+            }
+        }
+
+        // If new position is still same as old, we didn't match anything and need to skip
+        if (pos == FTell())
+        {
+            Printf( "In '%s' Skipping box: '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType) );
+            FSkip(boxLength);
         }
     }
 }
@@ -884,7 +734,8 @@ BigEndian();
 
 struct
 {
-    local string type="file";
+    local BoxType type;
+    BoxTypeWrite(type, "file");
     parse();
 } File;
 
