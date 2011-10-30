@@ -41,6 +41,16 @@ typedef uchar UUID[16] <read=UUIDRead>;
 string UUIDRead(UUID id)
 {
     local string s;
+
+    if (id == kSampleEncryptionBoxUUID)
+        return "SampleEncryptionBoxUUID";
+    else if (id == kProtectionSystemSpecificHeaderBoxUUID)
+        return "ProtectionSystemSpecificHeaderBoxUUID";
+    else if (id == kTrackEncryptionBoxUUID)
+        return "TrackEncryptionBoxUUID";
+    else if (id == kMSPlayReadyUUID)
+        return "MS PlayReady";
+
     SPrintf(s, "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X",
         id[0], id[1], id[2], id[3],
         id[4], id[5],
@@ -169,7 +179,7 @@ void Box()
         // box extends to end of file
     }
 
-    if (type == "uuid") //'uuid'
+    if (type == "uuid")
     {
         UUID usertype;
     }
@@ -187,13 +197,25 @@ void FullBox()
 /********************* Base Boxes *********************/
 
 /********************* PIFF Boxes *********************/
+const UUID kTrackEncryptionBoxUUID = UUIDConst("8974dbce-7be7-4c51-84f9-7148f9882554");
 const UUID kSampleEncryptionBoxUUID = UUIDConst("A2394F52-5A9B-4F14-A244-6C427C648DF4");
 const UUID kProtectionSystemSpecificHeaderBoxUUID = UUIDConst("d08a4f18-10f3-4a82-b6c8-32d8aba183d3");
+const UUID kMSPlayReadyUUID = UUIDConst("9A04F079-9840-4286-AB92-E65BE0885F95");
 
 // Global accessors for values from SampleEncryptionBox or TrackEncryptionBox
 local uint32 gAlgorithmID = 0;
 local uchar gIV_size = 0;
 local uchar gKID[16] = 0;
+
+typedef struct
+{ 
+    FullBox();    uint32 default_AlgorithmID : 24;
+    uint32 default_IV_size : 8;
+    UUID default_KID;
+
+    gAlgorithmID = default_AlgorithmID;
+    gIV_size = default_IV_size;
+    gKID = default_KID;} TrackEncryptionBox;
 
 typedef struct
 {
@@ -326,19 +348,19 @@ typedef struct
     } entries[entry_count];
 } SampleToGroupBox;
 
-typedef struct
-{
-    FullBox();
-    struct
-    {
-        uchar reserved : 2;
-        uchar sample_depends_on : 2;
-        uchar sample_is_depended_on : 2;
-        uchar sample_has_redundancy : 2;
-    } samples[sample_count];
+//typedef struct
+//{
+//    FullBox();
+//    struct
+//    {
+//        uchar reserved : 2;
+//        uchar sample_depends_on : 2;
+ //       uchar sample_is_depended_on : 2;
+//        uchar sample_has_redundancy : 2;
+//    } samples[sample_count];
 //The size of the table, sample_count, is taken from the sample_count in the Sample Size Box ('stsz')
 //or Compact Sample Size Box (‘stz2’).
-} SampleDependencyTypeBox;
+//} SampleDependencyTypeBox;
 
 typedef struct
 {
@@ -402,6 +424,77 @@ typedef struct
     Box();
     uchar data[size - (FTell() - startof(size))];
 } MediaDataBox;
+
+void SampleEntry()
+{
+    Box();
+    uchar reservedSE[6];    uint16 data_reference_index;
+}
+
+typedef struct
+{
+    SampleEntry();
+    uint16 pre_defined;    uint16 reserved;    uint32 pre_defined2[3];    uint16 width;    uint16 height;    FP16x16 horizresolution; // 0x00480000 = 72 dpi
+    FP16x16 vertresolution; // 0x00480000 = 72 dpi
+    uint32 reserved2;    uint16 frame_count;    uchar compressorname[32]; // TODO    uint16 depth; // TODO flag description = 0x0018;    int16 pre_defined3;//    CleanApertureBox clap; // optional//    PixelAspectRatioBox pasp; // optional} VisualSampleEntry;
+
+typedef struct
+{    SampleEntry()
+    uint32 reserved[2];    uint16 channelcount;    uint16 samplesize;    uint16 pre_defined;    uint16 reserved2;    uint32 samplerate; // { default samplerate of media}<<16;} AudioSampleEntry;
+
+typedef struct
+{
+    FullBox();
+    uint32 entry_count;
+    
+} SampleDescriptionBox;
+
+typedef struct
+{
+    Box();
+    parse();
+} SampleTableBox;
+
+typedef struct
+{
+    FullBox();
+    if (flags & 0x000001 == 0)
+        string location;} DataEntryUrlBox;
+
+typedef struct
+{    string name;    if (flags & 0x000001 == 0)
+        string location;} DataEntryUrnBox;
+typedef struct
+{
+    FullBox();    uint32 entry_count;
+    local BoxType boxType;
+    local uint32 boxSize;
+    local uint64 pos;
+    local int i;
+
+    for (i = 1; i <= entry_count; ++i)
+    {
+        pos = FTell();
+        boxSize = ReadUInt( FTell() );
+        ReadBoxType(boxType, FTell() + 4);
+
+        if (boxType == "url ")
+            DataEntryUrlBox url;
+        else if (boxType == "urn ")
+            DataEntryUrnBox urn;
+
+        if (pos == FTell())
+        {
+            Printf("Unknown DataEntryBox '%s'\n", BoxTypeRead(boxType));
+            FSkip(boxSize);
+        }
+    }} DataReferenceBox;
+
+typedef struct
+{
+    Box();
+    parse();
+} DataInformationBox;
 
 typedef struct
 {
@@ -535,6 +628,7 @@ typedef struct
         uint32 timescale;
         uint32 duration;
     }
+
     FP16x16 rate; // typically 1.0
     FP8x8 volume; // typically, full volume
     uint16 reserved1;
@@ -718,6 +812,38 @@ void parse()
             else if (boxType == "nmhd")
             {
                 NullMediaHeaderBox nmhd;
+            }
+            else if (boxType == "dinf")
+            {
+                DataInformationBox dinf;
+            }
+            else if (boxType == "stbl")
+            {
+                SampleTableBox stbl;
+            }
+        }
+        else if (this.type == "dinf")
+        {
+            if (boxType == "dref")
+            {
+                DataReferenceBox dref;
+            }
+        }
+        else if (this.type == "stbl")
+        {
+            if (boxType == "stsd")
+            {
+                SampleDescriptionBox stsd;
+            }
+        }
+        else if (this.type == "stsd")
+        {
+            if (boxType == "enca")
+            {
+            }
+            else if (boxType == "encv")
+            {
+                VisualSampleEntry encv;
             }
         }
 
