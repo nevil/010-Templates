@@ -209,13 +209,15 @@ local uchar gKID[16] = 0;
 
 typedef struct
 { 
-    FullBox();    uint32 default_AlgorithmID : 24;
+    FullBox();
+    uint32 default_AlgorithmID : 24;
     uint32 default_IV_size : 8;
     UUID default_KID;
 
     gAlgorithmID = default_AlgorithmID;
     gIV_size = default_IV_size;
-    gKID = default_KID;} TrackEncryptionBox;
+    gKID = default_KID;
+} TrackEncryptionBox;
 
 typedef struct
 {
@@ -348,19 +350,19 @@ typedef struct
     } entries[entry_count];
 } SampleToGroupBox;
 
-//typedef struct
-//{
-//    FullBox();
-//    struct
-//    {
-//        uchar reserved : 2;
-//        uchar sample_depends_on : 2;
- //       uchar sample_is_depended_on : 2;
-//        uchar sample_has_redundancy : 2;
-//    } samples[sample_count];
+typedef struct
+{
+    FullBox();
+    struct
+    {
+        uchar reserved : 2;
+        uchar sample_depends_on : 2;
+        uchar sample_is_depended_on : 2;
+        uchar sample_has_redundancy : 2;
+    } samples[sample_count];
 //The size of the table, sample_count, is taken from the sample_count in the Sample Size Box ('stsz')
 //or Compact Sample Size Box (‘stz2’).
-//} SampleDependencyTypeBox;
+} SampleDependencyTypeBox;
 
 typedef struct
 {
@@ -428,19 +430,39 @@ typedef struct
 void SampleEntry()
 {
     Box();
-    uchar reservedSE[6];    uint16 data_reference_index;
+    uchar reservedSE[6];
+    uint16 data_reference_index;
 }
 
 typedef struct
 {
     SampleEntry();
-    uint16 pre_defined;    uint16 reserved;    uint32 pre_defined2[3];    uint16 width;    uint16 height;    FP16x16 horizresolution; // 0x00480000 = 72 dpi
+    uint16 pre_defined;
+    uint16 reserved;
+    uint32 pre_defined2[3];
+    uint16 width;
+    uint16 height;
+    FP16x16 horizresolution; // 0x00480000 = 72 dpi
     FP16x16 vertresolution; // 0x00480000 = 72 dpi
-    uint32 reserved2;    uint16 frame_count;    uchar compressorname[32]; // TODO    uint16 depth; // TODO flag description = 0x0018;    int16 pre_defined3;//    CleanApertureBox clap; // optional//    PixelAspectRatioBox pasp; // optional} VisualSampleEntry;
+    uint32 reserved2;
+    uint16 frame_count;
+    uchar compressorname[32]; // TODO
+    uint16 depth; // TODO flag description = 0x0018;
+    int16 pre_defined3;
+//    CleanApertureBox clap; // optional
+//    PixelAspectRatioBox pasp; // optional
+} VisualSampleEntry;
 
 typedef struct
-{    SampleEntry()
-    uint32 reserved[2];    uint16 channelcount;    uint16 samplesize;    uint16 pre_defined;    uint16 reserved2;    uint32 samplerate; // { default samplerate of media}<<16;} AudioSampleEntry;
+{
+    SampleEntry();
+    uint32 reserved[2];
+    uint16 channelcount;
+    uint16 samplesize;
+    uint16 pre_defined;
+    uint16 reserved2;
+    uint32 samplerate; // { default samplerate of media}<<16;
+} AudioSampleEntry;
 
 typedef struct
 {
@@ -459,14 +481,19 @@ typedef struct
 {
     FullBox();
     if (flags & 0x000001 == 0)
-        string location;} DataEntryUrlBox;
+        string location;
+} DataEntryUrlBox;
 
 typedef struct
-{    string name;    if (flags & 0x000001 == 0)
-        string location;} DataEntryUrnBox;
-typedef struct
 {
-    FullBox();    uint32 entry_count;
+    string name;
+    if (flags & 0x000001 == 0)
+        string location;
+} DataEntryUrnBox;
+typedef struct
+{
+    FullBox();
+    uint32 entry_count;
     local BoxType boxType;
     local uint32 boxSize;
     local uint64 pos;
@@ -488,7 +515,8 @@ typedef struct
             Printf("Unknown DataEntryBox '%s'\n", BoxTypeRead(boxType));
             FSkip(boxSize);
         }
-    }} DataReferenceBox;
+    }
+} DataReferenceBox;
 
 typedef struct
 {
@@ -752,10 +780,10 @@ void parse()
             {
                 TrackRunBox trun;
             }
-            else if (boxType == "sdtp")
-            {
-                SampleDependencyTypeBox sdtp;
-            }
+//            else if (boxType == "sdtp")
+//            {
+//                SampleDependencyTypeBox sdtp;
+//            }
             else if (boxType == "sbgp")
             {
                 SampleToGroupBox sbgp;
