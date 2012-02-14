@@ -256,10 +256,30 @@ typedef struct
 
 typedef struct
 {
+    LittleEndian();
+    uint16 type;
+    uint16 length;
+    BigEndian();
+    uchar data[length];
+} PlayReadyRecord;
+
+typedef struct
+{
+    LittleEndian();
+    uint32 recordLength;
+    uint16 recordCount;
+    BigEndian();
+    local int i;
+    for (i = 0; i < recordCount; ++i)
+        PlayReadyRecord record;
+} PlayReadyHeaderObject;
+
+typedef struct
+{
     FullBox();
     UUID SystemID;
     uint32 DataSize;
-    uchar Data[DataSize];
+    PlayReadyHeaderObject header;
 } ProtectionSystemSpecificHeaderBox;
 /********************* PIFF Boxes *********************/
 
@@ -490,6 +510,7 @@ typedef struct
     if (flags & 0x000001 == 0)
         string location;
 } DataEntryUrnBox;
+
 typedef struct
 {
     FullBox();
