@@ -9,12 +9,13 @@
 
 //#define VERBOSE
 /*  TODOs collection
-    BoxType - Change to uint32 and create type constants
-    SampleDependencyTypeBox - The size of the table, sample_count, is taken from the sample_count in the Sample Size Box ('stsz') or Compact Sample Size Box (‘stz2’).
+    AudioSampleEntry - print bit rate shifted down (now it is << 16)
+    SampleDependencyTypeBox - Should use g_sample_count
     SampleEncryptionBox - Skipping for now
     Time stamps - change how they are displayed to show real time
     ISO code - fix iso language code in MediaHeaderBox
     Handler type - add type so handler type is printed as text in HandlerBox
+    CompactSampleSizeBox - field_size decides size in bits.
 */
 
 /**************** typedef FP16x16, FP8x8 ****************/
@@ -138,31 +139,37 @@ UUID UUIDConst(string s)
 */
 /******************** typedef UUID ********************/
 
-typedef uchar BoxType[4] <read=BoxTypeRead, write=BoxTypeWrite>;
+typedef uint32 BoxType <read=BoxTypeRead, write=BoxTypeWrite>;
 string BoxTypeRead(BoxType type)
 {
     local string s;
-    SPrintf(s, "%c%c%c%c", type[0], type[1], type[2], type[3]);
-//    SPrintf(s, "%c%c%c%c", (type >> 24) & 0xFF,
-//                           (type >> 16) & 0xFF,
-//                           (type >>  8) & 0xFF,
-//                           (type      ) & 0xFF);
+    SPrintf(s, "%c%c%c%c", (type >> 24) & 0xFF,
+                           (type >> 16) & 0xFF,
+                           (type >>  8) & 0xFF,
+                           (type      ) & 0xFF);
     return s;
 }
 
 void BoxTypeWrite(BoxType &type, string s)
 {
-    type[0] = s[0];
-    type[1] = s[1];
-    type[2] = s[2];
-    type[3] = s[3];
+    if ((sizeof(s) - 1) != 4)
+    {
+        Printf("BoxTypeWrite(%s) size(%d) != 4\n", s, sizeof(s));
+        return 0;
+    }
+    type = ((uint32)s[0] << 24) | ((uint32)s[1] << 16) | ((uint32)s[2] << 8) | (uint32)s[3];
 }
-
 
 void ReadBoxType(BoxType &type, int64 pos)
 {
-    ReadBytes(type, pos, 4);
-//    type = ReadUInt(pos);
+    type = ReadUInt(pos);
+}
+
+int BoxEqu(BoxType box, string s)
+{
+    local BoxType tmpBox;
+    BoxTypeWrite(tmpBox, s);
+    return (box == tmpBox);
 }
 
 /********************* Base Boxes *********************/
@@ -180,7 +187,7 @@ void Box()
         // box extends to end of file
     }
 
-    if (type == "uuid")
+    if (BoxEqu(type, "uuid"))
     {
         UUID usertype;
     }
@@ -203,6 +210,9 @@ const UUID kSampleEncryptionBoxUUID = UUIDConst("A2394F52-5A9B-4F14-A244-6C427C6
 const UUID kProtectionSystemSpecificHeaderBoxUUID = UUIDConst("d08a4f18-10f3-4a82-b6c8-32d8aba183d3");
 const UUID kMSPlayReadyUUID = UUIDConst("9A04F079-9840-4286-AB92-E65BE0885F95");
 
+// Global accessor for values from SampleSizeBox or CompactSampleSizeBox
+local uint32 gsample_count = 0;
+
 // Global accessors for values from SampleEncryptionBox or TrackEncryptionBox
 local uint32 gAlgorithmID = 0;
 local uchar gIV_size = 0;
@@ -223,10 +233,10 @@ typedef struct
 typedef struct
 {
     FullBox();
-    Printf( "TODO: SampleEncryptionBox. Skipping for now\n");
-    FSkip(size - (FTell() - startof(size)));
+//    Printf( "TODO: SampleEncryptionBox. Skipping for now\n");
+    uchar data[size - (FTell() - startof(size))];
 /*
-    if (box.flags & 0x000001)
+    if (flags & 0x000001)
     {
         uint32 AlgorithmID : 24;
         uint32 IV_size : 8;
@@ -242,7 +252,7 @@ typedef struct
     struct
     {
         uchar InitializationVector[gIV_size];
-        if (box.flags & 0x000002)
+        if (flags & 0x000002)
         {
             uint16 NumberOfEntries;
             struct
@@ -270,9 +280,7 @@ typedef struct
     uint32 recordLength;
     uint16 recordCount;
     BigEndian();
-    local int i;
-    for (i = 0; i < recordCount; ++i)
-        PlayReadyRecord record;
+    PlayReadyRecord record[recordCount] <optimize=false>;
 } PlayReadyHeaderObject;
 
 typedef struct
@@ -291,6 +299,41 @@ typedef struct
     uint32 minor_version;
     uint32 compatible_brands[(size - FTell() + startof(size)) / sizeof(uint32)];
 } FileTypeBox;
+
+typedef struct
+{
+    FullBox();
+    uint32 track_ID;
+    uint32 default_sample_description_index;
+    uint32 default_sample_duration;
+    uint32 default_sample_size;
+    struct
+    {
+        uint32 reserved : 6;
+        uint32 sample_depends_on : 2;
+        uint32 sample_is_depended_on : 2;
+        uint32 sample_has_redundancy : 2;
+        uint32 sample_padding_value : 3;
+        uint32 sample_is_difference_sample : 1; // i.e. when 1 signals a non-key or non-sync sample
+        uint32 sample_degradation_priority : 16;
+    } default_sample_flags;
+} TrackExtendsBox;
+
+typedef struct
+{
+    FullBox();
+
+    if (version == 1)
+        uint64 fragment_duration;
+    else // version==0
+        uint32 fragment_duration;
+} MovieExtendsHeaderBox;
+
+typedef struct
+{
+    Box();
+    parse();
+} MovieExtendsBox;
 
 typedef struct
 {
@@ -331,7 +374,18 @@ typedef struct
     if (flags & 0x000010)
         uint32 default_sample_size;
     if (flags & 0x000020)
-        uint32 default_sample_flags;
+    {
+        struct
+        {
+            uint32 reserved : 6;
+            uint32 sample_depends_on : 2;
+            uint32 sample_is_depended_on : 2;
+            uint32 sample_has_redundancy : 2;
+            uint32 sample_padding_value : 3;
+            uint32 sample_is_difference_sample : 1; // i.e. when 1 signals a non-key or non-sync sample
+            uint32 sample_degradation_priority : 16;
+        } default_sample_flags;
+    }
 } TrackFragmentHeaderBox;
 
 typedef struct
@@ -374,13 +428,16 @@ typedef struct
 typedef struct
 {
     FullBox();
+    local uint32 tmp_sample_count = (size - (FTell() - startof(size)));
+    // should use gsample_count
     struct
     {
         uchar reserved : 2;
         uchar sample_depends_on : 2;
         uchar sample_is_depended_on : 2;
         uchar sample_has_redundancy : 2;
-    } samples[sample_count];
+    } samples[tmp_sample_count];
+
 //The size of the table, sample_count, is taken from the sample_count in the Sample Size Box ('stsz')
 //or Compact Sample Size Box (‘stz2’).
 } SampleDependencyTypeBox;
@@ -481,26 +538,21 @@ typedef struct
     LengthSizeMinusOne lengthSizeMinusOne;
     NumSequenceParameterSets numSequenceParameterSets;
 
-    local int i;
-    for (i = 0; i < (numSequenceParameterSets &0x1F); i++)
+    struct
     {
-        struct
-        {
-            uint16 length;
-            uchar parameterSet[length];
-        } sequenceParameterSet;
-    }
+        uint16 length;
+        uchar parameterSet[length];
+    } sequenceParameterSet[numSequenceParameterSets & 0x1F] <optimize=false>;
 
     uchar numPictureParameterSets;
-    for (i = 0; i < (numPictureParameterSets); i++)
+    struct
     {
-        struct
-        {
-            uint16 length;
-            uchar parameterSet[length];
-        } pictureParameterSet;
-    }
-    uchar extradata[size - (FTell() - startof(size))];
+        uint16 length;
+        uchar parameterSet[length];
+    } pictureParameterSet[numPictureParameterSets] <optimize=false>;
+
+    if (size - (FTell() - startof(size)))
+        uchar extradata[size - (FTell() - startof(size))];
 } AvccBox;
 
 typedef struct
@@ -515,7 +567,8 @@ typedef struct
     uint16 bits_per_coded_sample;
     uint16 extradata_size;
     uchar extradata[extradata_size];
-    uchar garbage[size - (FTell() - startof(size))];
+    if (size - (FTell() - startof(size)))
+        uchar garbage[size - (FTell() - startof(size))];
     BigEndian();
 } WfexBox;
 
@@ -649,11 +702,11 @@ typedef struct
 
     local BoxType boxType;
     ReadBoxType(boxType, FTell() + 4);
-    if (boxType == "dvc1")
+    if ( BoxEqu(boxType, "dvc1") )
     {
         Dvc1Box dvc1;
     }
-    else if (boxType == "avcC")
+    else if ( BoxEqu(boxType, "avcC") )
     {
         AvccBox avcC;
     }
@@ -671,11 +724,11 @@ typedef struct
 
     local BoxType boxType;
     ReadBoxType(boxType, FTell() + 4);
-    if (boxType == "wfex")
+    if ( BoxEqu(boxType, "wfex") )
     {
         WfexBox wfex;
     }
-    else if (boxType == "esds")
+    else if ( BoxEqu(boxType, "esds") )
     {
         EsdsBox esds;
     }
@@ -686,26 +739,124 @@ typedef struct
     FullBox();
     uint32 entry_count;
 
-    local int i;
+    local uint32 i;
     local BoxType boxType;
 
-    for (i = 0; i <= entry_count; i++)
+    for (i = 1; i <= entry_count; i++)
     {
         ReadBoxType(boxType, FTell() + 4);
         // Visual codec types
-        if (boxType == "vc-1" ||
-            boxType == "avc1")
+        if ( BoxEqu(boxType, "vc-1") ||
+             BoxEqu(boxType, "avc1") ||
+             BoxEqu(boxType, "encv") )
         {
             VisualSampleEntry visual;
         }
         // Audio codec types
-        else if (boxType == "wma " ||
-                 boxType == "mp4a")
+        else if ( BoxEqu(boxType, "wma ") ||
+                  BoxEqu(boxType, "mp4a") ||
+                  BoxEqu(boxType, "enca") )
         {
             AudioSampleEntry audio;
         }
     }
 } SampleDescriptionBox;
+
+typedef struct
+{
+    FullBox();
+    uint32 entry_count;
+
+    if (entry_count > 0)
+    {
+        struct
+        {
+            uint32 sample_count;
+            uint32 sample_offset;
+        } entries[entry_count];
+    }
+} CompositionOffsetBox;
+
+typedef struct
+{
+    FullBox();
+    uint32 entry_count;
+
+    if (entry_count > 0)
+    {
+        struct
+        {
+            uint32 sample_count;
+            uint32 sample_delta;
+        } entries[entry_count];
+    }
+
+} TimeToSampleBox;
+
+typedef struct
+{
+    FullBox();
+    uint32 entry_count;
+
+    if (entry_count > 0)
+    {
+        struct
+        {
+            uint32 first_chunk;
+            uint32 samples_per_chunk;
+            uint32 sample_description_index;
+        } entries[entry_count];
+    }
+} SampleToChunkBox;
+
+typedef struct
+{
+    FullBox();
+    uint32 entry_count;
+    uint64 chunk_offset[entry_count];
+} ChunkLargeOffsetBox;
+
+typedef struct
+{
+    FullBox();
+    uint32 entry_count;
+    if (entry_count > 0)
+        uint32 chunk_offset[entry_count];
+} ChunkOffsetBox;
+
+typedef struct
+{
+    FullBox();
+    uint32 reserved : 24;
+    uint32 field_size : 8;
+    uint32 sample_count;
+
+    // Set the global for the SampleDependencyTypeBox
+    gsample_count = sample_count;
+
+    // Temp solution
+    local uint64 bits = (field_size * sample_count);
+    local uint64 bytes = Ceil(bits / 8);
+    uchar entries[bytes];
+
+//    local uint32 i;
+//    for (i = 1; i <= sample_count; i++)
+//    {
+//        uchar : field_size entry_size;
+//    }
+} CompactSampleSizeBox;
+
+typedef struct
+{
+    FullBox();
+    uint32 sample_size;
+    uint32 sample_count;
+    if (sample_count > 0)
+        uint32 entry_size[sample_count];
+
+    // Set the global for the SampleDependencyTypeBox
+    gsample_count = sample_count;
+} SampleSizeBox;
 
 typedef struct
 {
@@ -742,9 +893,9 @@ typedef struct
         boxSize = ReadUInt( FTell() );
         ReadBoxType(boxType, FTell() + 4);
 
-        if (boxType == "url ")
+        if ( BoxEqu(boxType, "url ") )
             DataEntryUrlBox url;
-        else if (boxType == "urn ")
+        else if ( BoxEqu(boxType, "urn ") )
             DataEntryUrnBox urn;
 
         if (pos == FTell())
@@ -923,7 +1074,7 @@ void parse()
     local BoxType boxType;
     local UUID boxId;
     local uint64 pos;
-
+    local uint32 tmp;
     while( !EndOfObject() )
     {
         pos = FTell();
@@ -931,7 +1082,7 @@ void parse()
         boxLength = ReadUInt( FTell() );
         ReadBoxType(boxType, FTell() + 4);
 
-        if (boxType == "uuid")
+        if ( BoxEqu(boxType, "uuid") )
         {
             if (boxLength == 1)
                 ReadUuid(boxId, FTell() + 16);
@@ -946,169 +1097,201 @@ void parse()
 #ifdef VERBOSE
         Printf("In '%s', found boxType '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType));
 #endif
-
-        if ( this.type == "file" )
+        if ( BoxEqu(this.type, "file") )
         {
-            if( boxType == "ftyp" )
+            if( BoxEqu(boxType, "ftyp") )
             {
                 FileTypeBox ftyp;
             }
-            else if ( boxType == "moof" )
+            else if ( BoxEqu(boxType, "moof") )
             {
                 MovieFragmentBox moof;
             }
-            else if ( boxType == "mfra" )
+            else if ( BoxEqu(boxType, "mfra") )
             {
                 MovieFragmentRandomAccessBox mfra;
             }
-            else if ( boxType == "mdat" )
+            else if ( BoxEqu(boxType, "mdat") )
             {
                 MediaDataBox mdat;
             }
-            else if ( boxType == "moov" )
+            else if ( BoxEqu(boxType, "moov") )
             {
                 MovieBox moov;
             }
         }
-        else if (this.type == "moov")
+        else if ( BoxEqu(this.type, "moov") )
         {
-            if (boxType == "mvhd")
+            if ( BoxEqu(boxType, "mvhd") )
             {
                 MovieHeaderBox mvhd;
             }
-            else if (boxType == "trak")
+            else if ( BoxEqu(boxType, "trak") )
             {
                 TrackBox trak;
             }
-            else if ((boxType == "uuid" && boxId == kProtectionSystemSpecificHeaderBoxUUID) || boxType == "pssh")
+            else if ( (BoxEqu(boxType, "uuid") && boxId == kProtectionSystemSpecificHeaderBoxUUID) || BoxEqu(boxType, "pssh") )
             {
                 ProtectionSystemSpecificHeaderBox pssh;
             }
+            else if ( BoxEqu(boxType, "mvex") )
+            {
+                MovieExtendsBox mvex;
+            }
         }
-        else if (this.type == "moof")
+        else if ( BoxEqu(this.type, "mvex") )
         {
-            if (boxType == "mfhd")
+            if ( BoxEqu(boxType, "mehd") )
+            {
+                MovieExtendsHeaderBox mehd;
+            }
+            else if ( BoxEqu(boxType, "trex") )
+            {
+                TrackExtendsBox trex;
+            }
+        }
+        else if ( BoxEqu(this.type, "moof") )
+        {
+            if ( BoxEqu(boxType, "mfhd") )
             {
                 MovieFragmentHeaderBox mfhd;
             }
-            else if (boxType == "traf")
+            else if ( BoxEqu(boxType, "traf") )
             {
                 TrackFragmentBox traf;
             }
         }
-        else if (this.type == "mfra")
+        else if ( BoxEqu(this.type, "mfra") )
         {
-            if (boxType == "tfra")
+            if ( BoxEqu(boxType, "tfra") )
             {
                 TrackFragmentRandomAccessBox tfra;
             }
-            else if (boxType == "mfro")
+            else if ( BoxEqu(boxType, "mfro") )
             {
                 MovieFragmentRandomAccessOffsetBox mfro;
             }
         }
-        else if (this.type == "traf")
+        else if ( BoxEqu(this.type, "traf") )
         {
-            if (boxType == "tfhd")
+            if ( BoxEqu(boxType, "tfhd") )
             {
                 TrackFragmentHeaderBox tfhd;
             }
-            else if (boxType == "trun")
+            else if ( BoxEqu(boxType, "trun") )
             {
                 TrackRunBox trun;
             }
-//            else if (boxType == "sdtp")
-//            {
-//                SampleDependencyTypeBox sdtp;
-//            }
-            else if (boxType == "sbgp")
+            else if ( BoxEqu(boxType, "sdtp") )
+            {
+                SampleDependencyTypeBox sdtp;
+            }
+            else if ( BoxEqu(boxType, "sbgp") )
             {
                 SampleToGroupBox sbgp;
             }
-            else if (boxType == "subs")
+            else if ( BoxEqu(boxType, "subs") )
             {
                 SubSampleInformationBox subs;
             }
-            else if ((boxType == "uuid" && boxId == kSampleEncryptionBoxUUID) || boxType == "senc")
+            else if ( (BoxEqu(boxType, "uuid") && boxId == kSampleEncryptionBoxUUID) || BoxEqu(boxType, "senc") )
             {
                 SampleEncryptionBox senc;
             }
         }
-        else if (this.type == "trak")
+        else if ( BoxEqu(this.type, "trak") )
         {
-           if (boxType == "tkhd")
+           if ( BoxEqu(boxType, "tkhd") )
             {
                 TrackHeaderBox tkhd;
             }
-            else if (boxType == "mdia")
+            else if ( BoxEqu(boxType, "mdia") )
             {
                 MediaBox mdia;
             }
         }
-        else if (this.type == "mdia")
+        else if ( BoxEqu(this.type, "mdia") )
         {
-            if (boxType == "mdhd")
+            if ( BoxEqu(boxType, "mdhd") )
             {
                 MediaHeaderBox mdhd;
             }
-            else if (boxType == "hdlr")
+            else if ( BoxEqu(boxType, "hdlr") )
             {
                 HandlerBox hdlr;
             }
-            else if (boxType == "minf")
+            else if ( BoxEqu(boxType, "minf") )
             {
                 MediaInformationBox minf;
             }
         }
-        else if (this.type == "minf")
+        else if ( BoxEqu(this.type, "minf") )
         {
-            if (boxType == "vmhd")
+            if ( BoxEqu(boxType, "vmhd") )
             {
                 VideoMediaHeaderBox vmhd;
             }
-            else if (boxType == "smhd")
+            else if ( BoxEqu(boxType, "smhd") )
             {
                 SoundMediaHeaderBox smhd;
             }
-            else if (boxType == "hmhd")
+            else if ( BoxEqu(boxType, "hmhd") )
             {
                 HintMediaHeaderBox hmhd;
             }
-            else if (boxType == "nmhd")
+            else if ( BoxEqu(boxType, "nmhd") )
             {
                 NullMediaHeaderBox nmhd;
             }
-            else if (boxType == "dinf")
+            else if ( BoxEqu(boxType, "dinf") )
             {
                 DataInformationBox dinf;
             }
-            else if (boxType == "stbl")
+            else if ( BoxEqu(boxType, "stbl") )
             {
                 SampleTableBox stbl;
             }
         }
-        else if (this.type == "dinf")
+        else if ( BoxEqu(this.type, "dinf") )
         {
-            if (boxType == "dref")
+            if ( BoxEqu(boxType, "dref") )
             {
                 DataReferenceBox dref;
             }
         }
-        else if (this.type == "stbl")
+        else if ( BoxEqu(this.type, "stbl") )
         {
-            if (boxType == "stsd")
+            if ( BoxEqu(boxType, "stsd") )
             {
                 SampleDescriptionBox stsd;
             }
-        }
-        else if (this.type == "stsd")
-        {
-            if (boxType == "enca")
+            else if ( BoxEqu(boxType, "stts") )
             {
+                TimeToSampleBox stts;
             }
-            else if (boxType == "encv")
+            else if ( BoxEqu(boxType, "ctts") )
             {
-                VisualSampleEntry encv;
+                CompositionOffsetBox ctts;
+            }
+            else if ( BoxEqu(boxType, "stsc") )
+            {
+                SampleToChunkBox stsc;
+            }
+            else if ( BoxEqu(boxType, "stco") )
+            {
+                ChunkOffsetBox stco;
+            }
+            else if ( BoxEqu(boxType, "co64") )
+            {
+                ChunkLargeOffsetBox co64;
+            }
+            else if ( BoxEqu(boxType, "stsz") )
+            {
+                SampleSizeBox stsz;
+            }
+            else if ( BoxEqu(boxType, "stz2") )
+            {
+                CompactSampleSizeBox stz2;
             }
         }
 
