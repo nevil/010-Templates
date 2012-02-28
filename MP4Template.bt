@@ -40,6 +40,8 @@ string FP8x8Read(FP8x8 v)
 /**************** typedef FP16x16, FP8x8 ****************/
 
 /******************** typedef UUID ********************/
+//#define USE_UUID_ARRAY
+#ifdef USE_UUID_ARRAY
 typedef uchar UUID[16] <read=UUIDRead>;
 
 string UUIDRead(UUID id)
@@ -85,61 +87,77 @@ UUID UUIDConst(string s)
     return id;
 }
 
-/*
-typedef union
+#else
+
+typedef struct
 {
-    struct
-    {
-        int32 v1;
-        int16 v2;
-        int16 v3;
-        int16 v4;
-        int16 v5;
-        int32 v6;
-    } s;
-    uchar a[16];
+    uint32 time_low;
+    uint16 time_mid;
+    uint16 time_hi_and_version;
+    uchar clock_seq_hi_and_reserved;
+    uchar clock_seq_low;
+    uchar node[6];
 } UUID <read=UUIDRead>;
 
-string UUIDRead(UUID id)
+string UUIDToString(UUID& id)
 {
     local string s;
-    Printf("UUIDRead in\n");
-    SPrintf(s, "%08X-%04X-%04X-%04X-%04X%08X",
-        id.s.v1,
-        id.s.v2,
-        id.s.v3,
-        id.s.v4,
-        id.s.v5, id.s.v6);
-    Printf("UUIDRead out\n");
+    SPrintf(s, "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+        id.time_low,
+        id.time_mid,
+        id.time_hi_and_version,
+        id.clock_seq_hi_and_reserved,
+        id.clock_seq_low,
+        id.node[0], id.node[1], id.node[2],
+        id.node[3], id.node[4], id.node[5]);
+
     return s;
 }
 
-void ReadUuid(UUID &id, int64 pos)
+string UUIDRead(UUID& id)
 {
-    Printf("ReadUuid in\n");
-    ReadBytes(id.a, pos, 16);
+    local string ids = UUIDToString(id);
+    Printf("UUIDRead: '%s'\n", ids);
+    if (ids == kSampleEncryptionBoxUUID)
+        return "SampleEncryptionBoxUUID";
+    else if (ids == kProtectionSystemSpecificHeaderBoxUUID)
+        return "ProtectionSystemSpecificHeaderBoxUUID";
+    else if (ids == kTrackEncryptionBoxUUID)
+        return "TrackEncryptionBoxUUID";
+    else if (ids == kMSPlayReadyUUID)
+        return "MS PlayReady";
 
-    Printf("%s", UUIDRead(id));
-    Printf("ReadUuid out\n");
+    return ids;
 }
 
-UUID UUIDConst(string s)
+void ReadUuid(string &id, int64 pos)
 {
-    local UUID id;
-    Printf("UUIDConst in: %s\n", s);
+    local uint32 time_low;
+    local uint16 time_mid;
+    local uint16 time_hi_and_version;
+    local uchar clock_seq_hi_and_reserved;
+    local uchar clock_seq_low;
+    local uchar node[6];
 
-    SScanf(s, "%04X-%02X-%02X-%02X-%02X%04X",
-        id.s.v1,
-        id.s.v2,
-        id.s.v3,
-        id.s.v4,
-        id.s.v5, id.s.v6);
+    time_low = ReadUInt(pos);
+    time_mid = ReadUShort(pos + 4);
+    time_hi_and_version = ReadUShort(pos + 6);
+    clock_seq_hi_and_reserved = ReadByte(pos + 8);
+    clock_seq_low = ReadByte(pos + 9);
+    ReadBytes(node, pos + 10, 6);
 
-    Printf("%s", UUIDRead(id));
-    Printf("UUIDConst out\n");
-    return id;
+    SPrintf(id, "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+        time_low,
+        time_mid,
+        time_hi_and_version,
+        clock_seq_hi_and_reserved,
+        clock_seq_low,
+        node[0], node[1], node[2],
+        node[3], node[4], node[5]);
+    Printf("ReadUuid: '%s'\n", id);
 }
-*/
+#endif
+
 /******************** typedef UUID ********************/
 
 typedef uint32 BoxType <read=BoxTypeRead, write=BoxTypeWrite>;
@@ -208,11 +226,17 @@ void FullBox()
 /********************* Base Boxes *********************/
 
 /********************* PIFF Boxes *********************/
-const UUID kTrackEncryptionBoxUUID = UUIDConst("8974dbce-7be7-4c51-84f9-7148f9882554");
-const UUID kSampleEncryptionBoxUUID = UUIDConst("A2394F52-5A9B-4F14-A244-6C427C648DF4");
-const UUID kProtectionSystemSpecificHeaderBoxUUID = UUIDConst("d08a4f18-10f3-4a82-b6c8-32d8aba183d3");
-const UUID kMSPlayReadyUUID = UUIDConst("9A04F079-9840-4286-AB92-E65BE0885F95");
-
+#ifdef USE_UUID_ARRAY
+const UUID kTrackEncryptionBoxUUID =    UUIDConst("8974DBCE-7BE7-4C51-84F9-7148F9882554");
+const UUID kSampleEncryptionBoxUUID =   UUIDConst("A2394F52-5A9B-4F14-A244-6C427C648DF4");
+const UUID kMSPlayReadyUUID =           UUIDConst("9A04F079-9840-4286-AB92-E65BE0885F95");
+const UUID kProtectionSystemSpecificHeaderBoxUUID = UUIDConst("D08A4F18-10F3-4A82-B6C8-32D8ABA183D3");
+#else
+const string kTrackEncryptionBoxUUID =  "8974DBCE-7BE7-4C51-84F9-7148F9882554";
+const string kSampleEncryptionBoxUUID = "A2394F52-5A9B-4F14-A244-6C427C648DF4";
+const string kMSPlayReadyUUID =         "9A04F079-9840-4286-AB92-E65BE0885F95";
+const string kProtectionSystemSpecificHeaderBoxUUID = "D08A4F18-10F3-4A82-B6C8-32D8ABA183D3";
+#endif
 // Global accessor for values from SampleSizeBox or CompactSampleSizeBox
 local uint32 gsample_count = 0;
 
@@ -1121,7 +1145,11 @@ void parse()
 {
     local uint32 boxLength;
     local BoxType boxType;
+#ifdef USE_UUID_ARRAY
     local UUID boxId;
+#else
+    local string boxId;
+#endif
     local uint64 pos;
     local uint32 tmp;
     while( !EndOfObject() )
@@ -1139,7 +1167,11 @@ void parse()
                 ReadUuid(boxId, FTell() + 8);
 
 #ifdef VERBOSE
+#ifdef USE_UUID_ARRAY
             Printf("%s\n", UUIDRead(boxId));
+#else
+            Printf("%s\n", boxId);
+#endif
 #endif
         }
 
