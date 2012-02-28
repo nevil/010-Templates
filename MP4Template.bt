@@ -16,6 +16,9 @@
     ISO code - fix iso language code in MediaHeaderBox
     Handler type - add type so handler type is printed as text in HandlerBox
     CompactSampleSizeBox - field_size decides size in bits.
+    SampleDescriptionBox - Hint and Meta
+    Visual/AudioSampleEntry - Confirm that we actually found a sinf box
+    IPMPInfoBox - Add
 */
 
 /**************** typedef FP16x16, FP8x8 ****************/
@@ -214,9 +217,7 @@ const UUID kMSPlayReadyUUID = UUIDConst("9A04F079-9840-4286-AB92-E65BE0885F95");
 local uint32 gsample_count = 0;
 
 // Global accessors for values from SampleEncryptionBox or TrackEncryptionBox
-local uint32 gAlgorithmID = 0;
 local uchar gIV_size = 0;
-local uchar gKID[16] = 0;
 
 typedef struct
 { 
@@ -225,33 +226,29 @@ typedef struct
     uint32 default_IV_size : 8;
     UUID default_KID;
 
-    gAlgorithmID = default_AlgorithmID;
     gIV_size = default_IV_size;
-    gKID = default_KID;
 } TrackEncryptionBox;
 
 typedef struct
 {
     FullBox();
-//    Printf( "TODO: SampleEncryptionBox. Skipping for now\n");
-    uchar data[size - (FTell() - startof(size))];
-/*
+
+    local uint32 lIV_size = gIV_size;
+
     if (flags & 0x000001)
     {
         uint32 AlgorithmID : 24;
         uint32 IV_size : 8;
         uchar KID[16];
 
-        gAlgorithmID = AlgorithmID;
-        gIV_size = IV_size;
-        gKID = KID;
+        lIV_size = IV_size;
     }
 
     uint32 sample_count;
 
     struct
     {
-        uchar InitializationVector[gIV_size];
+        uchar InitializationVector[lIV_size];
         if (flags & 0x000002)
         {
             uint16 NumberOfEntries;
@@ -262,7 +259,7 @@ typedef struct
             } entries[NumberOfEntries];
         }
     } samples[sample_count] <optimize=false>;
-*/
+
 } SampleEncryptionBox;
 
 typedef struct
@@ -512,48 +509,69 @@ typedef struct
     uchar extradata[size - (FTell() - startof(size))];
 } Dvc1Box;
 
-typedef uchar LengthSizeMinusOne <read=LengthSizeMinusOneRead>;
-string LengthSizeMinusOneRead(LengthSizeMinusOne id)
-{
-    local string s;
-    SPrintf(s, "%d", id & 0x03);
-    return s;
-}
-
-typedef uchar NumSequenceParameterSets <read=NumSequenceParameterSetsRead>;
-string NumSequenceParameterSetsRead(NumSequenceParameterSets id)
-{
-    local string s;
-    SPrintf(s, "%d", id & 0x1F);
-    return s;
-}
-
 typedef struct
 {
-    Box();
     uchar configurationVersion;
     uchar avcProfileIndication;
     uchar profileCompatibility;
     uchar avcLevelIndication;
-    LengthSizeMinusOne lengthSizeMinusOne;
-    NumSequenceParameterSets numSequenceParameterSets;
+    uchar reserved : 6;
+    uchar lengthSizeMinusOne : 2;
+    uchar reserved : 3;
+    uchar numOfSequenceParameterSets : 5;
 
     struct
     {
-        uint16 length;
-        uchar parameterSet[length];
-    } sequenceParameterSet[numSequenceParameterSets & 0x1F] <optimize=false>;
+        uint16 sequenceParameterSetLength;
+        uchar sequenceParameterSetNALUnit[sequenceParameterSetLength];
+    } sequenceParameterSets[numOfSequenceParameterSets] <optimize=false>;
 
-    uchar numPictureParameterSets;
+    uchar numOfPictureParameterSets;
     struct
     {
-        uint16 length;
-        uchar parameterSet[length];
-    } pictureParameterSet[numPictureParameterSets] <optimize=false>;
+        uint16 pictureParameterSetLength;
+        uchar pictureParameterSetNALUnit[pictureParameterSetLength];
+    } pictureParameterSets[numOfPictureParameterSets] <optimize=false>;
 
     if (size - (FTell() - startof(size)))
         uchar extradata[size - (FTell() - startof(size))];
-} AvccBox;
+} AVCDecoderConfigurationRecord;
+
+typedef struct
+{
+    Box();
+    AVCDecoderConfigurationRecord AVCConfig;
+} AVCConfigurationBox;
+
+typedef struct
+{
+    Box();
+    BoxType data_format;
+} OriginalFormatBox;
+
+typedef struct
+{
+    FullBox();
+    uint32 scheme_type; // 4CC identifying the scheme
+    uint32 scheme_version; // scheme version
+    if (flags & 0x000001)
+        string scheme_uri; // browser uri
+} SchemeTypeBox;
+
+typedef struct
+{
+    Box();
+    parse();
+} SchemeInformationBox;
+
+typedef struct
+{
+    Box();
+    OriginalFormatBox frma;
+
+    parse();
+} ProtectionSchemeInfoBox;
+
 
 typedef struct
 {
@@ -682,6 +700,7 @@ void SampleEntry()
     uint16 data_reference_index;
 }
 
+
 typedef struct
 {
     SampleEntry();
@@ -708,7 +727,17 @@ typedef struct
     }
     else if ( BoxEqu(boxType, "avcC") )
     {
-        AvccBox avcC;
+        AVCConfigurationBox avcC;
+    }
+    else if ( BoxEqu(boxType, "esds") )
+    {
+        EsdsBox esds;
+    }
+
+    if ( BoxEqu(this.type, "encv") )
+    {
+        // Todo: Confirm that we actually found a sinf box
+        ProtectionSchemeInfoBox sinf;
     }
 } VisualSampleEntry;
 
@@ -732,6 +761,12 @@ typedef struct
     {
         EsdsBox esds;
     }
+
+    if ( BoxEqu(this.type, "enca") )
+    {
+        // Todo: Confirm that we actually found a sinf box
+        ProtectionSchemeInfoBox sinf;
+    }
 } AudioSampleEntry;
 
 typedef struct
@@ -741,23 +776,37 @@ typedef struct
 
     local uint32 i;
     local BoxType boxType;
+    local uint32 boxLength;
+    local uint64 pos;
 
     for (i = 1; i <= entry_count; i++)
     {
+        pos = FTell();
+        boxLength = ReadUInt( FTell() );
         ReadBoxType(boxType, FTell() + 4);
+
         // Visual codec types
         if ( BoxEqu(boxType, "vc-1") ||
              BoxEqu(boxType, "avc1") ||
-             BoxEqu(boxType, "encv") )
+             BoxEqu(boxType, "encv") ||
+             BoxEqu(boxType, "vide") )
         {
             VisualSampleEntry visual;
         }
         // Audio codec types
         else if ( BoxEqu(boxType, "wma ") ||
                   BoxEqu(boxType, "mp4a") ||
-                  BoxEqu(boxType, "enca") )
+                  BoxEqu(boxType, "enca") ||
+                  BoxEqu(boxType, "soun") )
         {
             AudioSampleEntry audio;
+        }
+
+        if (pos == FTell())
+        {
+            // If no known box, skip the box length to find next box
+            Printf( "In '%s' Skipping box: '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType) );
+            FSkip(boxLength);
         }
     }
 } SampleDescriptionBox;
@@ -1292,6 +1341,24 @@ void parse()
             else if ( BoxEqu(boxType, "stz2") )
             {
                 CompactSampleSizeBox stz2;
+            }
+        }
+        else if ( BoxEqu(this.type, "sinf") )
+        {
+            if ( BoxEqu(boxType, "schm") )
+            {
+                SchemeTypeBox schm;
+            }
+            else if ( BoxEqu(boxType, "schi") )
+            {
+                SchemeInformationBox schi;
+            }
+        }
+        else if  ( BoxEqu(this.type, "schi") )
+        {
+            if ( (BoxEqu(boxType, "uuid") && boxId == kTrackEncryptionBoxUUID) )
+            {
+                TrackEncryptionBox trackEncryption;
             }
         }
 
