@@ -154,7 +154,6 @@ void ReadUuid(string &id, int64 pos)
         clock_seq_low,
         node[0], node[1], node[2],
         node[3], node[4], node[5]);
-    Printf("ReadUuid: '%s'\n", id);
 }
 #endif
 
@@ -446,18 +445,65 @@ typedef struct
     } entries[entry_count];
 } SampleToGroupBox;
 
+typedef struct 
+{
+    uchar reserved : 2;
+    uchar sample_depends_on : 2;
+    uchar sample_is_depended_on : 2;
+    uchar sample_has_redundancy : 2;
+} SampleDependency <read=SampleDependencyRead>;
+
+string SampleDependencyRead(SampleDependency& v)
+{
+    local string s = "";
+
+    if (v.sample_depends_on == 0)
+        s += "Fr:Unk ";
+    else if (v.sample_depends_on == 1)
+        s += "Fr:NI ";
+    else if (v.sample_depends_on == 2)
+        s += "Fr:I ";
+
+    if (v.sample_is_depended_on == 0)
+        s += "DepP:Unk ";
+    else if (v.sample_is_depended_on == 1)
+        s += "Dep:NDisp ";
+    else if (v.sample_is_depended_on == 2)
+        s += "Dep:Disp ";
+
+    if (v.sample_has_redundancy == 0)
+        s += "Red:Unk";
+    else if (v.sample_has_redundancy == 1)
+        s += "Red:Red";
+    else if (v.sample_has_redundancy == 2)
+        s += "Red:NRed";
+
+/*
+sample_depends_on takes one of the following four values:
+0: the dependency of this sample is unknown;
+1: this sample does depend on others (not an I picture);
+2: this sample does not depend on others (I picture);
+3: reserved
+sample_is_depended_on takes one of the following four values:
+0: the dependency of other samples on this sample is unknown;
+1: other samples may depend on this one (not disposable);
+2: no other sample depends on this one (disposable);
+3: reserved
+sample_has_redundancy takes one of the following four values:
+0: it is unknown whether there is redundant coding in this sample;
+1: there is redundant coding in this sample;
+2: there is no redundant coding in this sample;
+3: reserved
+*/
+    return s;
+}
+
 typedef struct
 {
     FullBox();
     local uint32 tmp_sample_count = (size - (FTell() - startof(size)));
     // should use gsample_count
-    struct
-    {
-        uchar reserved : 2;
-        uchar sample_depends_on : 2;
-        uchar sample_is_depended_on : 2;
-        uchar sample_has_redundancy : 2;
-    } samples[tmp_sample_count];
+    SampleDependency samples[tmp_sample_count];
 
 //The size of the table, sample_count, is taken from the sample_count in the Sample Size Box ('stsz')
 //or Compact Sample Size Box (‘stz2’).
