@@ -11,7 +11,6 @@
 /*  TODOs collection
     AudioSampleEntry - print bit rate shifted down (now it is << 16)
     SampleDependencyTypeBox - Should use g_sample_count
-    SampleEncryptionBox - Skipping for now
     Time stamps - change how they are displayed to show real time
     ISO code - fix iso language code in MediaHeaderBox
     Handler type - add type so handler type is printed as text in HandlerBox
@@ -192,6 +191,14 @@ int BoxEqu(BoxType box, string s)
     return (box == tmpBox);
 }
 
+int EndOfObject()
+{
+    if ( exists(this.size) )
+        return (this.size - (FTell() - startof(this.size)) == 0) || FEof();
+    else
+        return FEof();
+}
+
 /********************* Base Boxes *********************/
 void Box()
 {
@@ -311,6 +318,43 @@ typedef struct
     PlayReadyHeaderObject header;
 } ProtectionSystemSpecificHeaderBox;
 /********************* PIFF Boxes *********************/
+
+/********************* CFF Boxes  *********************/
+typedef struct 
+{
+    FullBox();
+    if (flags & 1)
+    {
+        uint32 aux_info_type;
+        uint32 aux_info_type_parameter;
+    }
+    uchar default_sample_info_size;
+    uint32 sample_count;
+    if (default_sample_info_size == 0)
+    {
+        uchar sample_info_size[ sample_count ];
+    }
+} SampleAuxiliaryInformationSizesBox;
+
+typedef struct
+{
+    FullBox();
+    if (flags & 1) {
+        uint32 aux_info_type;
+        uint32 aux_info_type_parameter;
+    }
+    uint32 entry_count;
+    if ( version == 0 )
+    {
+        uint32 offset[ entry_count ];
+    }
+    else
+    {
+        uint64 offset[ entry_count ];
+    }
+} SampleAuxiliaryInformationOffsetsBox;
+
+/********************* CFF Boxes  *********************/
 
 typedef struct
 {
@@ -763,6 +807,21 @@ typedef struct
     }
 } EsdsBox;
 
+typedef struct
+{
+    Box();
+    uint32 hSpacing;
+    uint32 vSpacing;
+} PixelAspectRatioBox;
+
+typedef struct
+{
+    Box();
+    uint32 bufferSizeDB;
+    uint32 maxBitrate;
+    uint32 avgBitrate;
+} BitRateBox;
+
 void SampleEntry()
 {
     Box();
@@ -787,27 +846,41 @@ typedef struct
     uint16 depth; // TODO flag description = 0x0018;
     int16 pre_defined3;
 //    CleanApertureBox clap; // optional
-//    PixelAspectRatioBox pasp; // optional
 
     local BoxType boxType;
-    ReadBoxType(boxType, FTell() + 4);
-    if ( BoxEqu(boxType, "dvc1") )
+    while ( !EndOfObject() )
     {
-        Dvc1Box dvc1;
-    }
-    else if ( BoxEqu(boxType, "avcC") )
-    {
-        AVCConfigurationBox avcC;
-    }
-    else if ( BoxEqu(boxType, "esds") )
-    {
-        EsdsBox esds;
-    }
-
-    if ( BoxEqu(this.type, "encv") )
-    {
-        // Todo: Confirm that we actually found a sinf box
-        ProtectionSchemeInfoBox sinf;
+        ReadBoxType(boxType, FTell() + 4);
+        if ( BoxEqu(boxType, "dvc1") )
+        {
+            Dvc1Box dvc1;
+        }
+        else if ( BoxEqu(boxType, "avcC") )
+        {
+            AVCConfigurationBox avcC;
+        }
+        else if ( BoxEqu(boxType, "esds") )
+        {
+            EsdsBox esds;
+        }
+        else if ( BoxEqu(boxType, "pasp") )
+        {
+            PixelAspectRatioBox pasp; // optional
+        }
+        else if ( BoxEqu(boxType, "btrt") )
+        {
+            BitRateBox btrt;
+        }
+        else if ( BoxEqu(boxType, "sinf") )
+        {
+            ProtectionSchemeInfoBox sinf;
+        }
+        else
+        {
+            // If no known box, skip the box length to find next box
+            Printf( "In '%s' Skipping box: '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType) );
+            FSkip(boxLength);
+        }
     }
 } VisualSampleEntry;
 
@@ -822,20 +895,27 @@ typedef struct
     uint32 samplerate; // { default samplerate of media}<<16;
 
     local BoxType boxType;
-    ReadBoxType(boxType, FTell() + 4);
-    if ( BoxEqu(boxType, "wfex") )
+    while ( !EndOfObject() )
     {
-        WfexBox wfex;
-    }
-    else if ( BoxEqu(boxType, "esds") )
-    {
-        EsdsBox esds;
-    }
-
-    if ( BoxEqu(this.type, "enca") )
-    {
-        // Todo: Confirm that we actually found a sinf box
-        ProtectionSchemeInfoBox sinf;
+        ReadBoxType(boxType, FTell() + 4);
+        if ( BoxEqu(boxType, "wfex") )
+        {
+            WfexBox wfex;
+        }
+        else if ( BoxEqu(boxType, "esds") )
+        {
+            EsdsBox esds;
+        }
+        else if ( BoxEqu(boxType, "sinf") )
+        {
+            ProtectionSchemeInfoBox sinf;
+        }
+        else
+        {
+            // If no known box, skip the box length to find next box
+            Printf( "In '%s' Skipping box: '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType) );
+            FSkip(boxLength);
+        }
     }
 } AudioSampleEntry;
 
@@ -1179,13 +1259,12 @@ typedef struct
     parse();
 } MovieBox;
 
-int EndOfObject()
+typedef struct
 {
-    if ( exists(this.size) )
-        return (this.size - (FTell() - startof(this.size)) == 0) || FEof();
-    else
-        return FEof();
-}
+    Box();
+    if (size - (FTell() - startof(size)))
+        uchar skipped[size - (FTell() - startof(size))];
+} FreeBox;
 
 void parse()
 {
@@ -1245,6 +1324,10 @@ void parse()
             else if ( BoxEqu(boxType, "moov") )
             {
                 MovieBox moov;
+            }
+            else if ( BoxEqu(boxType, "free") || BoxEqu(boxType, "skip") )
+            {
+                FreeBox free;
             }
         }
         else if ( BoxEqu(this.type, "moov") )
@@ -1324,6 +1407,14 @@ void parse()
             else if ( (BoxEqu(boxType, "uuid") && boxId == kSampleEncryptionBoxUUID) || BoxEqu(boxType, "senc") )
             {
                 SampleEncryptionBox senc;
+            }
+            else if ( BoxEqu(boxType, "saiz") )
+            {
+                SampleAuxiliaryInformationSizesBox saiz;
+            }
+            else if ( BoxEqu(boxType, "saio") )
+            {
+                SampleAuxiliaryInformationOffsetsBox saio;
             }
         }
         else if ( BoxEqu(this.type, "trak") )
@@ -1420,6 +1511,14 @@ void parse()
             {
                 CompactSampleSizeBox stz2;
             }
+            else if ( BoxEqu(boxType, "saiz") )
+            {
+                SampleAuxiliaryInformationSizesBox saiz;
+            }
+            else if ( BoxEqu(boxType, "saio") )
+            {
+                SampleAuxiliaryInformationOffsetsBox saio;
+            }
         }
         else if ( BoxEqu(this.type, "sinf") )
         {
@@ -1434,7 +1533,7 @@ void parse()
         }
         else if  ( BoxEqu(this.type, "schi") )
         {
-            if ( (BoxEqu(boxType, "uuid") && boxId == kTrackEncryptionBoxUUID) )
+            if ( (BoxEqu(boxType, "uuid") && boxId == kTrackEncryptionBoxUUID) || BoxEqu(boxType, "tenc") )
             {
                 TrackEncryptionBox trackEncryption;
             }
