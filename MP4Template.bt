@@ -847,41 +847,8 @@ typedef struct
     int16 pre_defined3;
 //    CleanApertureBox clap; // optional
 
-    local BoxType boxType;
-    while ( !EndOfObject() )
-    {
-        ReadBoxType(boxType, FTell() + 4);
-        if ( BoxEqu(boxType, "dvc1") )
-        {
-            Dvc1Box dvc1;
-        }
-        else if ( BoxEqu(boxType, "avcC") )
-        {
-            AVCConfigurationBox avcC;
-        }
-        else if ( BoxEqu(boxType, "esds") )
-        {
-            EsdsBox esds;
-        }
-        else if ( BoxEqu(boxType, "pasp") )
-        {
-            PixelAspectRatioBox pasp; // optional
-        }
-        else if ( BoxEqu(boxType, "btrt") )
-        {
-            BitRateBox btrt;
-        }
-        else if ( BoxEqu(boxType, "sinf") )
-        {
-            ProtectionSchemeInfoBox sinf;
-        }
-        else
-        {
-            // If no known box, skip the box length to find next box
-            Printf( "In '%s' Skipping box: '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType) );
-            FSkip(boxLength);
-        }
-    }
+    parse();
+
 } VisualSampleEntry;
 
 typedef struct
@@ -894,29 +861,8 @@ typedef struct
     uint16 reserved2;
     uint32 samplerate; // { default samplerate of media}<<16;
 
-    local BoxType boxType;
-    while ( !EndOfObject() )
-    {
-        ReadBoxType(boxType, FTell() + 4);
-        if ( BoxEqu(boxType, "wfex") )
-        {
-            WfexBox wfex;
-        }
-        else if ( BoxEqu(boxType, "esds") )
-        {
-            EsdsBox esds;
-        }
-        else if ( BoxEqu(boxType, "sinf") )
-        {
-            ProtectionSchemeInfoBox sinf;
-        }
-        else
-        {
-            // If no known box, skip the box length to find next box
-            Printf( "In '%s' Skipping box: '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType) );
-            FSkip(boxLength);
-        }
-    }
+    parse();
+
 } AudioSampleEntry;
 
 typedef struct
@@ -925,39 +871,10 @@ typedef struct
     uint32 entry_count;
 
     local uint32 i;
-    local BoxType boxType;
-    local uint32 boxLength;
-    local uint64 pos;
 
     for (i = 1; i <= entry_count; i++)
     {
-        pos = FTell();
-        boxLength = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-
-        // Visual codec types
-        if ( BoxEqu(boxType, "vc-1") ||
-             BoxEqu(boxType, "avc1") ||
-             BoxEqu(boxType, "encv") ||
-             BoxEqu(boxType, "vide") )
-        {
-            VisualSampleEntry visual;
-        }
-        // Audio codec types
-        else if ( BoxEqu(boxType, "wma ") ||
-                  BoxEqu(boxType, "mp4a") ||
-                  BoxEqu(boxType, "enca") ||
-                  BoxEqu(boxType, "soun") )
-        {
-            AudioSampleEntry audio;
-        }
-
-        if (pos == FTell())
-        {
-            // If no known box, skip the box length to find next box
-            Printf( "In '%s' Skipping box: '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType) );
-            FSkip(boxLength);
-        }
+        parse();
     }
 } SampleDescriptionBox;
 
@@ -1081,27 +998,12 @@ typedef struct
 {
     FullBox();
     uint32 entry_count;
-    local BoxType boxType;
-    local uint32 boxSize;
-    local uint64 pos;
+
     local int i;
 
     for (i = 1; i <= entry_count; ++i)
     {
-        pos = FTell();
-        boxSize = ReadUInt( FTell() );
-        ReadBoxType(boxType, FTell() + 4);
-
-        if ( BoxEqu(boxType, "url ") )
-            DataEntryUrlBox url;
-        else if ( BoxEqu(boxType, "urn ") )
-            DataEntryUrnBox urn;
-
-        if (pos == FTell())
-        {
-            Printf("Unknown DataEntryBox '%s'\n", BoxTypeRead(boxType));
-            FSkip(boxSize);
-        }
+        parse();
     }
 } DataReferenceBox;
 
@@ -1477,6 +1379,17 @@ void parse()
                 DataReferenceBox dref;
             }
         }
+        else if ( BoxEqu(this.type, "dref") )
+        {
+            if ( BoxEqu(boxType, "url ") )
+            {
+                DataEntryUrlBox url;
+            }
+            else if ( BoxEqu(boxType, "urn ") )
+            {
+                DataEntryUrnBox urn;
+            }
+        }
         else if ( BoxEqu(this.type, "stbl") )
         {
             if ( BoxEqu(boxType, "stsd") )
@@ -1518,6 +1431,73 @@ void parse()
             else if ( BoxEqu(boxType, "saio") )
             {
                 SampleAuxiliaryInformationOffsetsBox saio;
+            }
+        }
+        else if ( BoxEqu(this.type, "stsd") )
+        {
+            // Visual codec types
+            if ( BoxEqu(boxType, "vc-1") ||
+                 BoxEqu(boxType, "avc1") ||
+                 BoxEqu(boxType, "encv") ||
+                 BoxEqu(boxType, "vide") )
+            {
+                VisualSampleEntry visual;
+            }
+            // Audio codec types
+            else if ( BoxEqu(boxType, "wma ") ||
+                      BoxEqu(boxType, "mp4a") ||
+                      BoxEqu(boxType, "enca") ||
+                      BoxEqu(boxType, "soun") )
+            {
+                AudioSampleEntry audio;
+            }
+        }
+        else if ( BoxEqu(this.type, "vc-1") ||
+                  BoxEqu(this.type, "avc1") ||
+                  BoxEqu(this.type, "encv") ||
+                  BoxEqu(this.type, "vide"))
+        {
+            if ( BoxEqu(boxType, "dvc1") )
+            {
+                Dvc1Box dvc1;
+            }
+            else if ( BoxEqu(boxType, "avcC") )
+            {
+                AVCConfigurationBox avcC;
+            }
+            else if ( BoxEqu(boxType, "esds") )
+            {
+                EsdsBox esds;
+            }
+            else if ( BoxEqu(boxType, "pasp") )
+            {
+                PixelAspectRatioBox pasp; // optional
+            }
+            else if ( BoxEqu(boxType, "btrt") )
+            {
+                BitRateBox btrt;
+            }
+            else if ( BoxEqu(boxType, "sinf") )
+            {
+                ProtectionSchemeInfoBox sinf;
+            }
+        }
+        else if ( BoxEqu(this.type, "wma ") ||
+                  BoxEqu(this.type, "mp4a") ||
+                  BoxEqu(this.type, "enca") ||
+                  BoxEqu(this.type, "soun") )
+        {
+            if ( BoxEqu(boxType, "wfex") )
+            {
+                WfexBox wfex;
+            }
+            else if ( BoxEqu(boxType, "esds") )
+            {
+                EsdsBox esds;
+            }
+            else if ( BoxEqu(boxType, "sinf") )
+            {
+                ProtectionSchemeInfoBox sinf;
             }
         }
         else if ( BoxEqu(this.type, "sinf") )
