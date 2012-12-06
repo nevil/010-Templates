@@ -191,13 +191,19 @@ int BoxEqu(BoxType box, string s)
     return (box == tmpBox);
 }
 
+uint32 LeftInBox()
+{
+    return this.size - (FTell() - startof(this.size));
+}
+
 int EndOfObject()
 {
     if ( exists(this.size) )
-        return (this.size - (FTell() - startof(this.size)) == 0) || FEof();
+        return (LeftInBox() == 0) || FEof();
     else
         return FEof();
 }
+
 
 /********************* Base Boxes *********************/
 void Box()
@@ -252,7 +258,7 @@ local uchar gIV_size = 0;
 typedef struct
 { 
     FullBox();
-    uint32 default_AlgorithmID : 24;
+    uint32 default_IsEncrypted : 24;
     uint32 default_IV_size : 8;
     UUID default_KID;
 
@@ -267,7 +273,7 @@ typedef struct
 
     if (flags & 0x000001)
     {
-        uint32 AlgorithmID : 24;
+        uint32 IsEncrypted : 24;
         uint32 IV_size : 8;
         uchar KID[16];
 
@@ -281,12 +287,12 @@ typedef struct
         uchar InitializationVector[lIV_size];
         if (flags & 0x000002)
         {
-            uint16 NumberOfEntries;
+            uint16 subsample_count;
             struct
             {
                 uint16 BytesOfClearData;
                 uint32 BytesOfEncryptedData;
-            } entries[NumberOfEntries];
+            } entries[subsample_count];
         }
     } samples[sample_count] <optimize=false>;
 
@@ -361,7 +367,8 @@ typedef struct
     Box();
     uint32 major_brand;
     uint32 minor_version;
-    uint32 compatible_brands[(size - FTell() + startof(size)) / sizeof(uint32)];
+    if (LeftInBox())
+        uint32 compatible_brands[ LeftInBox() / sizeof(uint32) ];
 } FileTypeBox;
 
 typedef struct
@@ -545,7 +552,7 @@ sample_has_redundancy takes one of the following four values:
 typedef struct
 {
     FullBox();
-    local uint32 tmp_sample_count = (size - (FTell() - startof(size)));
+    local uint32 tmp_sample_count = LeftInBox();
     // should use gsample_count
     SampleDependency samples[tmp_sample_count];
 
@@ -613,22 +620,64 @@ typedef struct {
 typedef struct
 {
     Box();
-    uchar data[size - (FTell() - startof(size))];
+    uchar data[LeftInBox()];
 } MediaDataBox;
 
 typedef struct
 {
     Box();
     uchar profile_level;
-    uchar extradata[size - (FTell() - startof(size))];
+    uchar extradata[LeftInBox()];
 } Dvc1Box;
 
 typedef struct
 {
+	uchar configurationVersion;
+    uchar profile_space : 3;
+	uchar profile_idc : 5;
+	uint16 constraint_indicator_flags;
+	uchar level_idc;
+	uint32 profile_compatibility_indications;
+	uchar reserved : 6;
+	uchar chromaFormat : 2;
+	uchar reserved : 5;
+	uchar bitDepthLumaMinus8 : 3;
+	uchar reserved : 5;
+	uchar bitDepthChromaMinus8 : 3;
+	uint16 avgFrameRate;
+	uchar constantFrameRate : 2;
+	uchar numTemporalLayers : 3;
+	uchar reserved : 1;
+	uchar lengthSizeMinusOne : 2;
+	uchar numOfArrays;
+
+    struct
+    {
+		uchar array_completeness : 1;
+		uchar reserved : 1;
+		uchar NAL_unit_type : 6;
+		uint16 numNalus;
+        struct
+        {
+			uint16 nalUnitLength;
+			uchar nalUnit[nalUnitLength];
+		} nalus[numNalus] <optimize=false>;
+	} nalus_array[numOfArrays] <optimize=false>;
+
+} HEVCDecoderConfigurationRecord;
+
+typedef struct
+{
+    Box();
+    HEVCDecoderConfigurationRecord HEVCConfig;
+} HEVCConfigurationBox;
+
+typedef struct
+{
     uchar configurationVersion;
-    uchar avcProfileIndication;
-    uchar profileCompatibility;
-    uchar avcLevelIndication;
+    uchar AVCProfileIndication;
+    uchar profile_compatibility;
+    uchar AVCLevelIndication;
     uchar reserved : 6;
     uchar lengthSizeMinusOne : 2;
     uchar reserved : 3;
@@ -647,8 +696,25 @@ typedef struct
         uchar pictureParameterSetNALUnit[pictureParameterSetLength];
     } pictureParameterSets[numOfPictureParameterSets] <optimize=false>;
 
-    if (size - (FTell() - startof(size)))
-        uchar extradata[size - (FTell() - startof(size))];
+    if (0) //LeftInBox() > 0)
+    {
+        uchar reserved : 6;
+        uchar chroma_format : 2;
+
+        uchar reserved : 5;
+        uchar bit_depth_luma_minus8 : 3;
+
+        uchar reserved : 5;
+        uchar bit_depth_chroma_minus8 : 3;
+
+        uchar numOfSequenceParameterSetExt;
+        struct
+        {
+            uint16 sequenceParameterSetExtLength;
+            uchar sequenceParameterSetExtNALUnit[sequenceParameterSetExtLength];
+        } sequenceParameterSets[numOfSequenceParameterSetExt] <optimize=false>;
+    }
+
 } AVCDecoderConfigurationRecord;
 
 typedef struct
@@ -699,8 +765,8 @@ typedef struct
     uint16 bits_per_coded_sample;
     uint16 extradata_size;
     uchar extradata[extradata_size];
-    if (size - (FTell() - startof(size)))
-        uchar garbage[size - (FTell() - startof(size))];
+    if (LeftInBox())
+        uchar garbage[LeftInBox()];
     BigEndian();
 } WfexBox;
 
@@ -752,7 +818,7 @@ typedef struct
 
     local int bytes = 0;
     local int length = 0;
-    while((size - (FTell() - startof(size))) > 0)
+    while(LeftInBox() > 0)
     {
         uchar descr_tag;
 
@@ -976,6 +1042,13 @@ typedef struct
 
 typedef struct
 {
+    FullBox();
+    uint32 entry_count;
+    uint32 sample_number[entry_count];
+} SyncSampleBox;
+
+typedef struct
+{
     Box();
     parse();
 } SampleTableBox;
@@ -1059,7 +1132,14 @@ typedef struct
     uint32 pre_defined;
     uint32 handler_type;
     uint32 reserved[3];
-    string name;
+
+    local uint32 lenOfString = LeftInBox();
+
+    char name[lenOfString];
+
+    if (name[lenOfString - 1] != 0)
+        Printf("\nError hdlr: name is not null terminated\n");
+
 } HandlerBox;
 
 typedef struct
@@ -1131,6 +1211,18 @@ typedef struct
 typedef struct
 {
     FullBox();
+    parse();
+} MetaBox;
+
+typedef struct
+{
+    Box();
+    parse();
+} UserDataBox;
+
+typedef struct
+{
+    FullBox();
     if (version == 1)
     {
         uint64 creation_time;
@@ -1164,9 +1256,10 @@ typedef struct
 typedef struct
 {
     Box();
-    if (size - (FTell() - startof(size)))
-        uchar skipped[size - (FTell() - startof(size))];
+    if (LeftInBox())
+        uchar skipped[LeftInBox()];
 } FreeBox;
+
 
 void parse()
 {
@@ -1249,6 +1342,24 @@ void parse()
             else if ( BoxEqu(boxType, "mvex") )
             {
                 MovieExtendsBox mvex;
+            }
+            else if ( BoxEqu(boxType, "udta") )
+            {
+                UserDataBox udta;
+            }
+        }
+        else if ( BoxEqu(this.type, "udta") )
+        {
+            if ( BoxEqu(boxType, "meta") )
+            {
+                MetaBox meta;
+            }
+        }
+        else if ( BoxEqu(this.type, "meta") )
+        {
+            if ( BoxEqu(boxType, "hdlr") )
+            {
+                HandlerBox hdlr;
             }
         }
         else if ( BoxEqu(this.type, "mvex") )
@@ -1432,6 +1543,10 @@ void parse()
             {
                 SampleAuxiliaryInformationOffsetsBox saio;
             }
+            else if ( BoxEqu(boxType, "stss") )
+            {
+                SyncSampleBox stss;
+            }
         }
         else if ( BoxEqu(this.type, "stsd") )
         {
@@ -1439,7 +1554,9 @@ void parse()
             if ( BoxEqu(boxType, "vc-1") ||
                  BoxEqu(boxType, "avc1") ||
                  BoxEqu(boxType, "encv") ||
-                 BoxEqu(boxType, "vide") )
+                 BoxEqu(boxType, "vide") ||
+                 BoxEqu(boxType, "hev1") ||
+                 BoxEqu(boxType, "hvc1"))
             {
                 VisualSampleEntry visual;
             }
@@ -1455,7 +1572,9 @@ void parse()
         else if ( BoxEqu(this.type, "vc-1") ||
                   BoxEqu(this.type, "avc1") ||
                   BoxEqu(this.type, "encv") ||
-                  BoxEqu(this.type, "vide"))
+                  BoxEqu(this.type, "vide") ||
+                  BoxEqu(this.type, "hev1") ||
+                  BoxEqu(this.type, "hvc1"))
         {
             if ( BoxEqu(boxType, "dvc1") )
             {
@@ -1464,6 +1583,10 @@ void parse()
             else if ( BoxEqu(boxType, "avcC") )
             {
                 AVCConfigurationBox avcC;
+            }
+            else if ( BoxEqu(boxType, "hvcC") )
+            {
+                HEVCConfigurationBox hvcC;
             }
             else if ( BoxEqu(boxType, "esds") )
             {
@@ -1522,7 +1645,7 @@ void parse()
         // If new position is still same as old, we didn't match anything and need to skip
         if (pos == FTell())
         {
-            Printf( "In '%s' Skipping box: '%s'\n", BoxTypeRead(this.type), BoxTypeRead(boxType) );
+            Printf( "In '%s' Skipping box: '%s' close to offset 0x%x\n", BoxTypeRead(this.type), BoxTypeRead(boxType), pos);
             FSkip(boxLength);
         }
     }
