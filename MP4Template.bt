@@ -193,7 +193,11 @@ int BoxEqu(BoxType box, string s)
 
 uint32 LeftInBox()
 {
-    return this.size - (FTell() - startof(this.size));
+    // We need to check largesize
+    if (this.size == 1)
+        return this.largesize - (FTell() - startof(this.size));
+    else
+        return this.size - (FTell() - startof(this.size));
 }
 
 int EndOfObject()
