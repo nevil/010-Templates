@@ -358,7 +358,7 @@ typedef struct
     {
         uint32 offset[ entry_count ];
     }
-    else
+    else // version==0
     {
         uint64 offset[ entry_count ];
     }
@@ -477,7 +477,7 @@ typedef struct
             {
                 if (box.version == 1)
                     uint32 subsample_size;
-                else
+                else // version==0
                     uint16 subsample_size;
 
                 uchar subsample_priority;
@@ -566,6 +566,37 @@ typedef struct
 
 typedef struct
 {
+    FullBox();
+    uint32 entry_count;
+    if (entry_count > 0)
+    {
+        struct
+        {
+            if (version == 1)
+            {
+                uint64 segment_duration;
+                int64 media_time;
+            }
+            else // version==0
+            {
+                uint32 segment_duration;
+                int32 media_time;
+            }
+
+            int16 media_rate_integer;
+            int16 media_rate_fraction;
+        } entry[entry_count] <optimize=false>;
+    }
+} EditListBox;
+
+typedef struct
+{
+    Box();
+    parse();
+} EditBox;
+
+typedef struct
+{
     Box();
     parse();
 } TrackFragmentBox;
@@ -599,7 +630,7 @@ typedef struct
             uint64 time;
             uint64 moof_offset;
         }
-        else
+        else // version==0
         {
             uint32 time;
             uint32 moof_offset;
@@ -1444,6 +1475,10 @@ void parse()
             {
                 MediaBox mdia;
             }
+            else if ( BoxEqu(boxType, "edts") )
+            {
+                EditBox edts;
+            }
         }
         else if ( BoxEqu(this.type, "mdia") )
         {
@@ -1644,6 +1679,10 @@ void parse()
             {
                 TrackEncryptionBox trackEncryption;
             }
+        }
+        else if ( BoxEqu(boxType, "elst") )
+        {
+            EditListBox elst;
         }
 
         // If new position is still same as old, we didn't match anything and need to skip
