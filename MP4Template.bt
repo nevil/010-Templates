@@ -10,6 +10,7 @@
 //#define VERBOSE
 /*  TODOs collection
     AudioSampleEntry - print bit rate shifted down (now it is << 16)
+    SampleSizeBox - Need to have a g_sample_count per track....
     SampleDependencyTypeBox - Should use g_sample_count
     Time stamps - change how they are displayed to show real time
     ISO code - fix iso language code in MediaHeaderBox
@@ -125,6 +126,12 @@ string UUIDRead(UUID& id)
         return "TrackEncryptionBoxUUID";
     else if (ids == kMSPlayReadyUUID)
         return "MS PlayReady";
+    else if (ids == kWidevineUUID)
+        return "Google Widevine";
+    else if (ids == kFairPlayUUID)
+        return "Apple FairPlay?";
+    else if (ids == kCommonSystemUUID)
+        return "Common System ID";
 
     return ids;
 }
@@ -252,6 +259,9 @@ const string kTrackEncryptionBoxUUID =  "8974DBCE-7BE7-4C51-84F9-7148F9882554";
 const string kSampleEncryptionBoxUUID = "A2394F52-5A9B-4F14-A244-6C427C648DF4";
 const string kMSPlayReadyUUID =         "9A04F079-9840-4286-AB92-E65BE0885F95";
 const string kProtectionSystemSpecificHeaderBoxUUID = "D08A4F18-10F3-4A82-B6C8-32D8ABA183D3";
+const string kWidevineUUID =            "EDEF8BA9-79D6-4ACE-A3C8-27DCD51D21ED";
+const string kFairPlayUUID =            "29701FE4-3CC7-4A34-8C5B-AE90C7439A47";
+const string kCommonSystemUUID =        "1077EFEC-C0B2-4D02-ACE3-3C1E52E2FB4B";
 #endif
 // Global accessor for values from SampleSizeBox or CompactSampleSizeBox
 local uint32 g_sample_count = 0;
@@ -325,7 +335,14 @@ typedef struct
     FullBox();
     UUID SystemID;
     uint32 DataSize;
-    PlayReadyHeaderObject header;
+    if (UUIDToString(SystemID) == kMSPlayReadyUUID)
+    {
+        PlayReadyHeaderObject header;
+    }
+    else
+    {
+        char bytes[DataSize];
+    }
 } ProtectionSystemSpecificHeaderBox;
 /********************* PIFF Boxes *********************/
 
@@ -397,6 +414,13 @@ typedef struct
 typedef struct
 {
     FullBox();
+    uint32 track_id;
+    parse();
+} TrackExtensionPropertiesBox;
+
+typedef struct
+{
+    FullBox();
 
     if (version == 1)
         uint64 fragment_duration;
@@ -434,6 +458,19 @@ typedef struct
             uint32 sample_composition_time_offset;
     } samples[sample_count] <optimize=false>;
 } TrackRunBox;
+
+typedef struct
+{
+    FullBox();
+    if (version == 1)
+    {
+        uint64 baseMediaDecodeTime;
+    }
+    else
+    {
+        uint32 baseMediaDecodeTime;
+    }
+} TrackFragmentBaseMediaDecodeTimeBox;
 
 typedef struct
 {
@@ -861,6 +898,12 @@ string descr_format(descr_length& id)
 
 typedef struct
 {
+    Box();
+    char data[LeftInBox()];
+} Ac3AnnexFBox;
+
+typedef struct
+{
     FullBox();
 
     local int bytes = 0;
@@ -1080,7 +1123,8 @@ typedef struct
     FullBox();
     uint32 sample_size;
     uint32 sample_count;
-    if (sample_count > 0)
+
+    if (sample_size == 0 && sample_count > 0)
         uint32 entry_size[sample_count];
 
     // Set the global for the SampleDependencyTypeBox
@@ -1136,6 +1180,23 @@ typedef struct
 typedef struct
 {
     FullBox();
+    uint16 GraphicsMode;
+    uint16 Opcolor_r;
+    uint16 Opcolor_g;
+    uint16 Opcolor_b;
+    uint16 Balance;
+    uint16 Reserved;
+} BaseMediaInfoBox;
+
+typedef struct
+{
+    Box();
+    parse();
+} BaseMediaInformationHeaderBox;
+
+typedef struct
+{
+    FullBox();
     uint16 graphicsmode; // 0 == copy, see below
     struct
     {
@@ -1172,6 +1233,12 @@ typedef struct
     Box();
     parse();
 } MediaInformationBox;
+
+typedef struct
+{
+    FullBox();
+    string extended_language;
+} ExtendedLanguageBox;
 
 typedef struct
 {
@@ -1252,6 +1319,19 @@ typedef struct
 typedef struct
 {
     Box();
+    local uint32 numberOfTrackIDs = LeftInBox() / sizeof(uint32);
+    uint32 track_IDs[numberOfTrackIDs];
+} TrackReferenceTypeBox;
+
+typedef struct
+{
+    Box();
+    parse();
+} TrackReferenceBox;
+
+typedef struct
+{
+    Box();
     parse();
 } TrackBox;
 
@@ -1307,6 +1387,33 @@ typedef struct
         uchar skipped[LeftInBox()];
 } FreeBox;
 
+#ifdef USE_UUID_ARRAY
+UUID parseUUID(int aBoxLength)
+#else
+string parseUUID(int aBoxLength)
+#endif
+{
+#ifdef USE_UUID_ARRAY
+    local UUID boxId;
+#else
+    local string boxId;
+#endif
+
+    if (aBoxLength == 1)
+        ReadUuid(boxId, FTell() + 16);
+    else
+        ReadUuid(boxId, FTell() + 8);
+
+#ifdef VERBOSE
+#ifdef USE_UUID_ARRAY
+    Printf("%s\n", UUIDRead(boxId));
+#else
+    Printf("%s\n", boxId);
+#endif
+#endif
+
+    return boxId;
+}
 
 void parse()
 {
@@ -1328,18 +1435,7 @@ void parse()
 
         if ( BoxEqu(boxType, "uuid") )
         {
-            if (boxLength == 1)
-                ReadUuid(boxId, FTell() + 16);
-            else
-                ReadUuid(boxId, FTell() + 8);
-
-#ifdef VERBOSE
-#ifdef USE_UUID_ARRAY
-            Printf("%s\n", UUIDRead(boxId));
-#else
-            Printf("%s\n", boxId);
-#endif
-#endif
+            boxId = parseUUID(boxLength);
         }
 
 #ifdef VERBOSE
@@ -1370,6 +1466,10 @@ void parse()
             else if ( BoxEqu(boxType, "free") || BoxEqu(boxType, "skip") )
             {
                 FreeBox free;
+            }
+            else if ( (BoxEqu(boxType, "uuid") && boxId == "4E657466-6C69-7850-6966-665374726D21") )
+            {
+                char uuid[boxLength];
             }
         }
         else if ( BoxEqu(this.type, "moov") )
@@ -1418,6 +1518,10 @@ void parse()
             else if ( BoxEqu(boxType, "trex") )
             {
                 TrackExtendsBox trex;
+            }
+            else if ( BoxEqu(boxType, "trep") )
+            {
+                TrackExtensionPropertiesBox trep;
             }
         }
         else if ( BoxEqu(this.type, "moof") )
@@ -1476,10 +1580,14 @@ void parse()
             {
                 SampleAuxiliaryInformationOffsetsBox saio;
             }
+            else if ( BoxEqu(boxType, "tfdt") )
+            {
+                TrackFragmentBaseMediaDecodeTimeBox tfdt;
+            }
         }
         else if ( BoxEqu(this.type, "trak") )
         {
-           if ( BoxEqu(boxType, "tkhd") )
+            if ( BoxEqu(boxType, "tkhd") )
             {
                 TrackHeaderBox tkhd;
             }
@@ -1490,6 +1598,61 @@ void parse()
             else if ( BoxEqu(boxType, "edts") )
             {
                 EditBox edts;
+            }
+            else if ( BoxEqu(boxType, "tref") )
+            {
+                TrackReferenceBox tref;
+            }
+        }
+        else if ( BoxEqu(this.type, "tref") )
+        {
+            if ( BoxEqu(boxType, "hint") )
+            {
+                TrackReferenceTypeBox hint;
+            }
+            else if ( BoxEqu(boxType, "cdsc") )
+            {
+                TrackReferenceTypeBox cdsc;
+            }
+            else if ( BoxEqu(boxType, "font") )
+            {
+                TrackReferenceTypeBox font;
+            }
+            else if ( BoxEqu(boxType, "hind") )
+            {
+                TrackReferenceTypeBox hind;
+            }
+            else if ( BoxEqu(boxType, "vdep") )
+            {
+                TrackReferenceTypeBox vdep;
+            }
+            else if ( BoxEqu(boxType, "vplx") )
+            {
+                TrackReferenceTypeBox vplx;
+            }
+            else if ( BoxEqu(boxType, "subt") )
+            {
+                TrackReferenceTypeBox subt;
+            }
+            else if ( BoxEqu(boxType, "tmcd") )
+            {
+                TrackReferenceTypeBox subt;
+            }
+            else if ( BoxEqu(boxType, "chap") )
+            {
+                TrackReferenceTypeBox subt;
+            }
+            else if ( BoxEqu(boxType, "sync") )
+            {
+                TrackReferenceTypeBox subt;
+            }
+            else if ( BoxEqu(boxType, "scpt") )
+            {
+                TrackReferenceTypeBox subt;
+            }
+            else if ( BoxEqu(boxType, "ssrc") )
+            {
+                TrackReferenceTypeBox subt;
             }
         }
         else if ( BoxEqu(this.type, "mdia") )
@@ -1505,6 +1668,10 @@ void parse()
             else if ( BoxEqu(boxType, "minf") )
             {
                 MediaInformationBox minf;
+            }
+            else if ( BoxEqu(boxType, "elng") )
+            {
+                ExtendedLanguageBox elng;
             }
         }
         else if ( BoxEqu(this.type, "minf") )
@@ -1532,6 +1699,18 @@ void parse()
             else if ( BoxEqu(boxType, "stbl") )
             {
                 SampleTableBox stbl;
+            }
+            else if ( BoxEqu(boxType, "gmhd") )
+            {
+                BaseMediaInformationHeaderBox gmhd;
+            }
+
+        }
+        else if ( BoxEqu(this.type, "gmhd") )
+        {
+            if ( BoxEqu(boxType, "gmin") )
+            {
+                BaseMediaInfoBox gmin;
             }
         }
         else if ( BoxEqu(this.type, "dinf") )
@@ -1615,7 +1794,8 @@ void parse()
             else if ( BoxEqu(boxType, "wma ") ||
                       BoxEqu(boxType, "mp4a") ||
                       BoxEqu(boxType, "enca") ||
-                      BoxEqu(boxType, "soun") )
+                      BoxEqu(boxType, "soun") ||
+                      BoxEqu(boxType, "ac-3") )
             {
                 AudioSampleEntry audio;
             }
@@ -1659,7 +1839,8 @@ void parse()
         else if ( BoxEqu(this.type, "wma ") ||
                   BoxEqu(this.type, "mp4a") ||
                   BoxEqu(this.type, "enca") ||
-                  BoxEqu(this.type, "soun") )
+                  BoxEqu(this.type, "soun") ||
+                  BoxEqu(this.type, "ac-3") )
         {
             if ( BoxEqu(boxType, "wfex") )
             {
@@ -1672,6 +1853,10 @@ void parse()
             else if ( BoxEqu(boxType, "sinf") )
             {
                 ProtectionSchemeInfoBox sinf;
+            }
+            else if ( BoxEqu(boxType, "dac3") )
+            {
+                Ac3AnnexFBox dac3;
             }
         }
         else if ( BoxEqu(this.type, "sinf") )
@@ -1715,6 +1900,6 @@ struct
     parse();
 } File;
 
-    Printf("g_sample_count %d", g_sample_count);
+    Printf("g_sample_count %d\n", g_sample_count);
 
 return 0;
