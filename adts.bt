@@ -1,0 +1,122 @@
+//--------------------------------------
+//--- 010 Editor v5.0 Binary Template
+//
+// File:
+// Author:
+// Revision:
+// Purpose:
+//--------------------------------------
+
+enum RawDataBlockType {
+    ID_SCE,
+    ID_CPE,
+    ID_CCE,
+    ID_LFE,
+    ID_DSE,
+    ID_PCE,
+    ID_FIL,
+    ID_END
+};
+
+void raw_data_block(void) {
+    local int32 raw_data_size = this.aac_frame_length - (FTell() - startof(this.syncword));
+    uchar raw_data_block[raw_data_size]  <format=hex>;
+
+/*
+    while(1) {
+        uchar id_syn_ele;
+        if (this.id_syn_ele != ID_END) {
+            switch(this.id_syn_ele) {
+                case ID_SCE:
+                    Printf("ID_SCE\n");
+                    break;
+                case ID_CPE:
+                    Printf("ID_CPE\n");
+                    break;
+                case ID_CCE:
+                    Printf("ID_CCE\n");
+                    break;
+                case ID_LFE:
+                    Printf("ID_LFE\n");
+                    break;
+                case ID_DSE:
+                    Printf("ID_DSE\n");
+                    break;
+                case ID_PCE:
+                    Printf("ID_PCE\n");
+                    break;
+                case ID_FIL:
+                    Printf("ID_FIL\n");
+                    break;
+            }
+        } else {
+            break;
+        }  
+    }
+*/
+}
+
+void adts_error_check(void) {
+    if (this.protection_absent == 0) {
+        uint16 crc_check  <format=hex>;
+    }
+}
+
+void adts_fixed_header(void) {
+    uint16 syncword : 12 <format=hex>;
+    uint32 ID : 1 <format=decimal>;
+    uint32 layer : 2 <format=decimal>;
+    uint32 protection_absent : 1 <format=decimal>;
+    uint32 profile : 2 <format=decimal>;
+    uint32 sampling_frequency_index : 4 <format=decimal>;
+    uint32 private_bit : 1 <format=decimal>;
+    uint32 channel_configuration : 3 <format=decimal>;
+    uint32 original_copy : 1 <format=decimal>;
+    uint32 home : 1 <format=decimal>;
+}
+
+void adts_variable_header(void) {
+    uint64 copyright_identification_bit : 1 <format=decimal>;
+    uint64 copyright_identification_start : 1 <format=decimal>;
+    uint64 aac_frame_length : 13 <format=decimal>;
+    uint64 adts_buffer_fullness : 11 <format=decimal>;
+    uint64 number_of_raw_data_blocks_in_frame : 2 <format=decimal>;
+}
+
+typedef struct {
+    adts_fixed_header();
+    adts_variable_header();
+
+    if (this.syncword != 0xFFF) {
+        Printf("syncword has wrong value %x at %x\n", this.syncword, startof(this.syncword));
+        error();
+    }
+
+    if (this.number_of_raw_data_blocks_in_frame == 0) {
+        adts_error_check();
+        raw_data_block();
+//        local int64 crc = Checksum(CHECKSUM_CRC16, startof(this.syncword), 9, -1, -1);
+//        Printf("crc %x, crc_check %x\n", crc, this.crc_check);
+    } else {
+        adts_header_error_check();
+        local int i;
+        for (i = 0; i <= this.number_of_raw_data_blocks_in_frame; i++) {
+            raw_data_block();
+            adts_raw_daa_block_error_check();
+        }
+    }
+} adts_frame;
+
+BitfieldDisablePadding();
+BitfieldLeftToRight();
+
+void adts_sequence(void) {    local uint16 syncword = ReadUShort(FTell());
+    while (syncword & 0xFFF0 == 0xFFF0) {
+        adts_frame frame;    }
+}
+
+adts_sequence();
+//while (!FEof())
+//{
+//    adts_frame frame;
+//}
