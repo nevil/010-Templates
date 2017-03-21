@@ -254,10 +254,10 @@ const string kMSPlayReadyUUID =         "9A04F079-9840-4286-AB92-E65BE0885F95";
 const string kProtectionSystemSpecificHeaderBoxUUID = "D08A4F18-10F3-4A82-B6C8-32D8ABA183D3";
 #endif
 // Global accessor for values from SampleSizeBox or CompactSampleSizeBox
-local uint32 gsample_count = 0;
+local uint32 g_sample_count = 0;
 
 // Global accessors for values from SampleEncryptionBox or TrackEncryptionBox
-local uchar gIV_size = 0;
+local uchar g_IV_size = 0;
 
 typedef struct
 { 
@@ -266,14 +266,14 @@ typedef struct
     uint32 default_IV_size : 8;
     UUID default_KID;
 
-    gIV_size = default_IV_size;
+    g_IV_size = default_IV_size;
 } TrackEncryptionBox;
 
 typedef struct
 {
     FullBox();
 
-    local uint32 lIV_size = gIV_size;
+    local uint32 lIV_size = g_IV_size;
 
     if (flags & 0x000001)
     {
@@ -655,7 +655,8 @@ typedef struct {
 typedef struct
 {
     Box();
-    uchar data[LeftInBox()];
+//    uchar data[LeftInBox()];
+    FSkip(LeftInBox());
 } MediaDataBox;
 
 typedef struct
@@ -665,39 +666,50 @@ typedef struct
     uchar extradata[LeftInBox()];
 } Dvc1Box;
 
+typedef struct { uchar a[6];} uint48;
+
 typedef struct
 {
-	uchar configurationVersion;
-    uchar profile_space : 3;
-	uchar profile_idc : 5;
-	uint16 constraint_indicator_flags;
-	uchar level_idc;
-	uint32 profile_compatibility_indications;
-	uchar reserved : 6;
-	uchar chromaFormat : 2;
-	uchar reserved : 5;
-	uchar bitDepthLumaMinus8 : 3;
-	uchar reserved : 5;
-	uchar bitDepthChromaMinus8 : 3;
-	uint16 avgFrameRate;
-	uchar constantFrameRate : 2;
-	uchar numTemporalLayers : 3;
-	uchar reserved : 1;
-	uchar lengthSizeMinusOne : 2;
-	uchar numOfArrays;
+    uchar configurationVersion;
+    uchar general_profile_space : 2;
+    uchar general_tier_flag : 1;
+    uchar general_profile_idc : 5;
+    uint32 general_profile_compatibility_flags;
+    uint48 general_constraint_indicator_flags;
+    uchar general_level_idc;
+    uint16 reserved : 4;
+    uint16 min_spatial_segmentation_idc : 12;
+    uchar reserved : 6;
+    uchar parallelismType : 2;
+    uchar reserved : 6;
+    uchar chromaFormat : 2;
+    uchar reserved : 5;
+    uchar bitDepthLumaMinus8 : 3;
+    uchar reserved : 5;
+    uchar bitDepthChromaMinus8 : 3;
+    uint16 avgFrameRate;
+    uchar constantFrameRate : 2;
+    uchar numTemporalLayers : 3;
+    uchar temporalIdNested : 1;
+    uchar lengthSizeMinusOne : 2;
+    uchar numOfArrays;
 
     struct
     {
-		uchar array_completeness : 1;
-		uchar reserved : 1;
-		uchar NAL_unit_type : 6;
-		uint16 numNalus;
-        struct
+        uchar array_completeness : 1;
+        uchar reserved : 1;
+        uchar NAL_unit_type : 6;
+        uint16 numNalus;
+        if (numNalus != 0)
         {
-			uint16 nalUnitLength;
-			uchar nalUnit[nalUnitLength];
-		} nalus[numNalus] <optimize=false>;
-	} nalus_array[numOfArrays] <optimize=false>;
+            struct
+            {
+                uint16 nalUnitLength;
+                if (nalUnitLength != 0)
+                   uchar nalUnit[nalUnitLength];
+            } nalus[numNalus] <optimize=false>;
+        }
+    } nalus_array[numOfArrays] <optimize=false>;
 
 } HEVCDecoderConfigurationRecord;
 
@@ -1072,7 +1084,7 @@ typedef struct
         uint32 entry_size[sample_count];
 
     // Set the global for the SampleDependencyTypeBox
-    gsample_count = sample_count;
+    g_sample_count = sample_count;
 } SampleSizeBox;
 
 typedef struct
@@ -1702,5 +1714,7 @@ struct
     BoxTypeWrite(type, "file");
     parse();
 } File;
+
+    Printf("g_sample_count %d", g_sample_count);
 
 return 0;
