@@ -756,7 +756,7 @@ typedef struct
     HEVCDecoderConfigurationRecord HEVCConfig;
 } HEVCConfigurationBox;
 
-typedef struct
+typedef struct (int leftInBox)
 {
     uchar configurationVersion;
     uchar AVCProfileIndication;
@@ -780,7 +780,7 @@ typedef struct
         uchar pictureParameterSetNALUnit[pictureParameterSetLength];
     } pictureParameterSets[numOfPictureParameterSets] <optimize=false>;
 
-    if (0) //LeftInBox() > 0)
+    if (leftInBox > 0)
     {
         uchar reserved : 6;
         uchar chroma_format : 2;
@@ -804,7 +804,7 @@ typedef struct
 typedef struct
 {
     Box();
-    AVCDecoderConfigurationRecord AVCConfig;
+    AVCDecoderConfigurationRecord AVCConfig(LeftInBox());
 } AVCConfigurationBox;
 
 typedef struct
