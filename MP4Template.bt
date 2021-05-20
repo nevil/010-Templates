@@ -784,8 +784,8 @@ typedef struct (uint64 structSize)
     local uint64 currentOffset = structSize;
     if (numOfPictureParameterSets > 0)
     {
-        local uint64 endOfPPS = startof(pictureParameterSets[numOfPictureParameterSets - 1]) + sizeof(pictureParameterSets[0]);
-        local uint64 startOfStruct = startof(this);//startof(configurationVersion);
+        local uint64 endOfPPS = startof(pictureParameterSets) + sizeof(pictureParameterSets);
+        local uint64 startOfStruct = startof(this);
         currentOffset =  endOfPPS - startOfStruct;
     }
 
@@ -1398,6 +1398,40 @@ typedef struct
         uchar skipped[LeftInBox()];
 } FreeBox;
 
+typedef struct
+{
+    FullBox();
+    uint32 reference_ID;
+    uint32 timescale;
+
+    if (version == 0)
+    {
+        uint32 earliest_presentation_time;
+        uint32 first_offset;
+    }
+    else
+    {
+        uint64 earliest_presentation_time;
+        uint64 first_offset;
+    }
+
+    uint16 reserved;
+    uint16 reference_count;
+
+    if (reference_count > 0)
+    {
+        struct
+        {
+            uint32 reference_type : 1;
+            uint32 referenced_size : 31;
+            uint32 subsegment_duration;
+            uint32 starts_with_SAP : 1;
+            uint32 SAP_type : 3;
+            uint32 SAP_delta_time : 28;
+        } references[reference_count];
+    }
+} SegmentIndexBox;
+
 #ifdef USE_UUID_ARRAY
 UUID parseUUID(int aBoxLength)
 #else
@@ -1481,6 +1515,10 @@ void parse()
             else if ( (BoxEqu(boxType, "uuid") && boxId == "4E657466-6C69-7850-6966-665374726D21") )
             {
                 char uuid[boxLength];
+            }
+            else if ( BoxEqu(boxType, "sidx") )
+            {
+                SegmentIndexBox sidx;
             }
         }
         else if ( BoxEqu(this.type, "moov") )
