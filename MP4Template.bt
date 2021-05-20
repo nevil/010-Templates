@@ -756,7 +756,7 @@ typedef struct
     HEVCDecoderConfigurationRecord HEVCConfig;
 } HEVCConfigurationBox;
 
-typedef struct (int leftInBox)
+typedef struct (uint64 structSize)
 {
     uchar configurationVersion;
     uchar AVCProfileIndication;
@@ -780,7 +780,18 @@ typedef struct (int leftInBox)
         uchar pictureParameterSetNALUnit[pictureParameterSetLength];
     } pictureParameterSets[numOfPictureParameterSets] <optimize=false>;
 
-    if (leftInBox > 0)
+    // Default to the struct size
+    local uint64 currentOffset = structSize;
+    if (numOfPictureParameterSets > 0)
+    {
+        local uint64 endOfPPS = startof(pictureParameterSets[numOfPictureParameterSets - 1]) + sizeof(pictureParameterSets[0]);
+        local uint64 startOfStruct = startof(this);//startof(configurationVersion);
+        currentOffset =  endOfPPS - startOfStruct;
+    }
+
+    local int leftToRead = structSize - currentOffset;
+
+    if (leftToRead > 0)
     {
         uchar reserved : 6;
         uchar chroma_format : 2;
